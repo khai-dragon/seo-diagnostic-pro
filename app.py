@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SEO Diagnostic Pro — Web Edition
-Streamlit 기반 웹 인터페이스
+SEO Diagnostic Pro v2 — Screaming Frog Style
+실시간 크롤링 + 데이터 테이블 + 진단 리포트
 """
 
 import re
 import json
 import time
+import pandas as pd
 import streamlit as st
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
 from urllib.parse import urlparse, urljoin, urldefrag
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ── 설정 ─────────────────────────────────────────────────────────────────────
-USER_AGENT = "SEODiagnosticPro/1.0 (+https://seodiagnosticpro.dev/bot)"
+USER_AGENT = "SEODiagnosticPro/2.0 (+https://seodiagnosticpro.dev/bot)"
 REQUEST_TIMEOUT = 15
 TITLE_MIN, TITLE_MAX = 30, 60
 DESC_MIN, DESC_MAX = 120, 160
@@ -32,6 +32,73 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# ── CSS 스타일 (Screaming Frog 느낌) ─────────────────────────────────────────
+st.markdown("""
+<style>
+    /* 상단 헤더바 */
+    .sf-header {
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+        padding: 12px 20px;
+        border-radius: 8px;
+        margin-bottom: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .sf-header h1 {
+        color: #e94560;
+        font-size: 1.4rem;
+        margin: 0;
+        font-weight: 700;
+    }
+    .sf-header span {
+        color: #a3a3a3;
+        font-size: 0.85rem;
+    }
+    /* 실시간 수집 상태바 */
+    .crawl-status {
+        background: #0d1117;
+        border: 1px solid #30363d;
+        border-radius: 6px;
+        padding: 10px 16px;
+        font-family: 'SF Mono', 'Consolas', monospace;
+        font-size: 0.82rem;
+        color: #58a6ff;
+        margin-bottom: 8px;
+    }
+    .crawl-status .url { color: #8b949e; }
+    .crawl-status .count { color: #3fb950; font-weight: bold; }
+    .crawl-status .eta { color: #f0883e; }
+    /* 요약 카드 */
+    .summary-card {
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-radius: 8px;
+        padding: 14px;
+        text-align: center;
+    }
+    .summary-card .num {
+        font-size: 1.8rem;
+        font-weight: 800;
+        color: #58a6ff;
+    }
+    .summary-card .label {
+        font-size: 0.78rem;
+        color: #8b949e;
+        margin-top: 2px;
+    }
+    .summary-card.red .num { color: #f85149; }
+    .summary-card.yellow .num { color: #d29922; }
+    .summary-card.green .num { color: #3fb950; }
+    /* 이슈 뱃지 */
+    .badge-high { background: #f8514922; color: #f85149; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+    .badge-med { background: #d2992222; color: #d29922; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+    .badge-low { background: #3fb95022; color: #3fb950; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+    /* 데이터 테이블 스타일 */
+    .stDataFrame { font-size: 0.85rem; }
+</style>
+""", unsafe_allow_html=True)
 
 
 # ── 유틸리티 ──────────────────────────────────────────────────────────────────
@@ -51,10 +118,6 @@ def is_same_domain(url, base_domain):
         return False
 
 
-def count_words(text):
-    return len(text.split())
-
-
 def build_session():
     s = requests.Session()
     s.headers.update({
@@ -62,6 +125,14 @@ def build_session():
         "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
     })
     return s
+
+
+def fmt_time(seconds):
+    """초를 mm:ss 포맷으로"""
+    if seconds < 0:
+        return "--:--"
+    m, s = divmod(int(seconds), 60)
+    return f"{m:02d}:{s:02d}"
 
 
 # ── robots.txt / sitemap ─────────────────────────────────────────────────────
@@ -91,7 +162,6 @@ def discover_sitemaps(base_url, session):
 
 def parse_sitemap(sitemap_url, session, max_pages, base_domain):
     urls = set()
-
     def _parse(url, depth=0):
         if depth > 3 or len(urls) >= max_pages:
             return
@@ -112,7 +182,6 @@ def parse_sitemap(sitemap_url, session, max_pages, base_domain):
                         urls.add(normalized)
         except Exception:
             pass
-
     _parse(sitemap_url)
     return urls
 
@@ -120,63 +189,69 @@ def parse_sitemap(sitemap_url, session, max_pages, base_domain):
 # ── 페이지 분석 ──────────────────────────────────────────────────────────────
 def analyze_page(url, session):
     result = {
-        "url": url,
-        "status_code": None,
-        "title": "",
-        "title_length": 0,
-        "meta_description": "",
-        "meta_description_length": 0,
-        "h1": "",
-        "h1_exists": False,
-        "word_count": 0,
-        "canonical": "",
-        "images_missing_alt": 0,
-        "total_images": 0,
-        "outgoing_internal_links": [],
-        "load_time": 0.0,
-        "error": None,
+        "URL": url,
+        "Status": None,
+        "Title": "",
+        "Title Len": 0,
+        "Meta Desc": "",
+        "Desc Len": 0,
+        "H1": "",
+        "H1 Len": 0,
+        "Canonical": "",
+        "Words": 0,
+        "Images": 0,
+        "Alt Missing": 0,
+        "Outlinks": 0,
+        "Load (s)": 0.0,
+        "Error": "",
+        "_internal_links": [],
     }
     try:
         start = time.time()
         r = session.get(url, timeout=REQUEST_TIMEOUT)
-        result["load_time"] = round(time.time() - start, 3)
-        result["status_code"] = r.status_code
+        result["Load (s)"] = round(time.time() - start, 2)
+        result["Status"] = r.status_code
 
         if r.status_code != 200:
             return result
 
         soup = BeautifulSoup(r.content, "html.parser")
 
+        # Title
         tag = soup.find("title")
         if tag and tag.string:
-            result["title"] = tag.string.strip()
-            result["title_length"] = len(result["title"])
+            result["Title"] = tag.string.strip()
+            result["Title Len"] = len(result["Title"])
 
+        # Meta Description
         meta = soup.find("meta", attrs={"name": re.compile(r"^description$", re.I)})
         if meta and meta.get("content"):
-            result["meta_description"] = meta["content"].strip()
-            result["meta_description_length"] = len(result["meta_description"])
+            result["Meta Desc"] = meta["content"].strip()
+            result["Desc Len"] = len(result["Meta Desc"])
 
+        # H1
         h1 = soup.find("h1")
         if h1:
-            result["h1"] = h1.get_text(strip=True)
-            result["h1_exists"] = True
+            result["H1"] = h1.get_text(strip=True)
+            result["H1 Len"] = len(result["H1"])
 
+        # Canonical
         canon = soup.find("link", attrs={"rel": "canonical"})
         if canon and canon.get("href"):
-            result["canonical"] = canon["href"].strip()
+            result["Canonical"] = canon["href"].strip()
 
+        # Word count
         body = soup.find("body")
         if body:
             text = body.get_text(separator=" ", strip=True)
-            result["word_count"] = count_words(text)
+            result["Words"] = len(text.split())
 
+        # Images
         imgs = soup.find_all("img")
-        result["total_images"] = len(imgs)
-        result["images_missing_alt"] = sum(
-            1 for img in imgs if not img.get("alt", "").strip()
-        )
+        result["Images"] = len(imgs)
+        result["Alt Missing"] = sum(1 for img in imgs if not img.get("alt", "").strip())
 
+        # Internal links
         base_domain = urlparse(url).netloc
         internal_links = set()
         for a in soup.find_all("a", href=True):
@@ -185,10 +260,11 @@ def analyze_page(url, session):
             normalized = normalize_url(full)
             if is_same_domain(normalized, base_domain):
                 internal_links.add(normalized)
-        result["outgoing_internal_links"] = sorted(internal_links)
+        result["_internal_links"] = sorted(internal_links)
+        result["Outlinks"] = len(internal_links)
 
     except Exception as e:
-        result["error"] = str(e)
+        result["Error"] = str(e)[:80]
 
     return result
 
@@ -211,33 +287,6 @@ def get_pagespeed_score(url, api_key):
         return None
 
 
-# ── 크롤러 ───────────────────────────────────────────────────────────────────
-def crawl_site(start_url, session, max_pages, base_domain, delay, progress_bar, status_text):
-    visited = set()
-    queue = [normalize_url(start_url)]
-    results = []
-
-    while queue and len(visited) < max_pages:
-        url = queue.pop(0)
-        if url in visited:
-            continue
-        visited.add(url)
-
-        status_text.text(f"크롤링 중... [{len(visited)}/{max_pages}] {url}")
-        progress_bar.progress(len(visited) / max_pages)
-
-        page = analyze_page(url, session)
-        results.append(page)
-
-        for link in page["outgoing_internal_links"]:
-            if link not in visited:
-                queue.append(link)
-
-        time.sleep(delay)
-
-    return results
-
-
 # ── 사이트 구조 트리 ─────────────────────────────────────────────────────────
 def build_tree_string(urls, base_domain):
     tree = {}
@@ -249,9 +298,7 @@ def build_tree_string(urls, base_domain):
         node = tree
         for part in parts:
             node = node.setdefault(part, {})
-
     lines = [f"{base_domain}/"]
-
     def _render(node, prefix=""):
         items = sorted(node.keys())
         for i, name in enumerate(items):
@@ -260,144 +307,66 @@ def build_tree_string(urls, base_domain):
             lines.append(f"{prefix}{connector}{name}")
             extension = "    " if is_last else "│   "
             _render(node[name], prefix + extension)
-
     _render(tree)
     return "\n".join(lines)
 
 
-# ── 진단 ─────────────────────────────────────────────────────────────────────
+# ── 진단 엔진 ────────────────────────────────────────────────────────────────
 def run_diagnostics(pages, incoming_map, pagespeed_scores):
     issues = []
 
+    # 중복 Title
     title_map = defaultdict(list)
     for p in pages:
-        if p["title"]:
-            title_map[p["title"]].append(p["url"])
+        if p["Title"]:
+            title_map[p["Title"]].append(p["URL"])
     for title, urls in title_map.items():
         if len(urls) > 1:
             issues.append({
                 "type": "중복 Title",
                 "severity": "HIGH",
-                "icon": "🔴",
-                "detail": f'Title "{title[:50]}" 이(가) {len(urls)}개 페이지에서 중복됩니다.',
+                "detail": f'"{title[:40]}..." → {len(urls)}개 페이지 중복',
                 "pages": urls,
-                "recommendation": "각 페이지마다 고유한 Title을 작성하세요.",
+                "fix": "각 페이지마다 고유한 Title을 작성하세요.",
             })
 
     for p in pages:
-        url = p["url"]
+        url = p["URL"]
+        tl = p["Title Len"]
+        dl = p["Desc Len"]
 
-        tl = p["title_length"]
-        if tl > 0 and (tl < TITLE_MIN or tl > TITLE_MAX):
-            issues.append({
-                "type": "Title 길이 부적절",
-                "severity": "MEDIUM",
-                "icon": "🟡",
-                "detail": f"Title 길이 {tl}자 → {TITLE_MIN}~{TITLE_MAX}자로 수정하세요",
-                "pages": [url],
-                "recommendation": f"현재 {tl}자입니다. {TITLE_MIN}~{TITLE_MAX}자 사이로 조절하세요.",
-            })
-        elif tl == 0:
-            issues.append({
-                "type": "Title 없음",
-                "severity": "HIGH",
-                "icon": "🔴",
-                "detail": "Title 태그가 비어 있거나 없습니다.",
-                "pages": [url],
-                "recommendation": "모든 페이지에 고유하고 설명적인 Title 태그를 추가하세요.",
-            })
+        if tl == 0:
+            issues.append({"type": "Title 없음", "severity": "HIGH", "detail": "Title 태그 없음", "pages": [url], "fix": "고유하고 설명적인 Title 태그를 추가하세요."})
+        elif tl < TITLE_MIN or tl > TITLE_MAX:
+            issues.append({"type": "Title 길이", "severity": "MEDIUM", "detail": f"Title {tl}자 → {TITLE_MIN}~{TITLE_MAX}자 권장", "pages": [url], "fix": f"현재 {tl}자. {TITLE_MIN}~{TITLE_MAX}자로 조절하세요."})
 
-        dl = p["meta_description_length"]
-        if dl > 0 and (dl < DESC_MIN or dl > DESC_MAX):
-            issues.append({
-                "type": "Meta Description 길이 부적절",
-                "severity": "MEDIUM",
-                "icon": "🟡",
-                "detail": f"Meta Description 길이 {dl}자 → {DESC_MIN}~{DESC_MAX}자로 수정하세요",
-                "pages": [url],
-                "recommendation": f"현재 {dl}자입니다. {DESC_MIN}~{DESC_MAX}자 사이로 작성하세요.",
-            })
-        elif dl == 0:
-            issues.append({
-                "type": "Meta Description 없음",
-                "severity": "MEDIUM",
-                "icon": "🟡",
-                "detail": "Meta Description이 없습니다.",
-                "pages": [url],
-                "recommendation": "핵심 키워드와 CTA를 포함한 설명을 추가하세요.",
-            })
+        if dl == 0:
+            issues.append({"type": "Description 없음", "severity": "MEDIUM", "detail": "Meta Description 없음", "pages": [url], "fix": "핵심 키워드와 CTA를 포함한 설명을 추가하세요."})
+        elif dl < DESC_MIN or dl > DESC_MAX:
+            issues.append({"type": "Description 길이", "severity": "MEDIUM", "detail": f"Description {dl}자 → {DESC_MIN}~{DESC_MAX}자 권장", "pages": [url], "fix": f"현재 {dl}자. {DESC_MIN}~{DESC_MAX}자로 조절하세요."})
 
-        if not p["h1_exists"]:
-            issues.append({
-                "type": "H1 태그 없음",
-                "severity": "HIGH",
-                "icon": "🔴",
-                "detail": "H1 태그가 없습니다.",
-                "pages": [url],
-                "recommendation": "페이지당 하나의 H1 태그를 사용하고 핵심 키워드를 포함하세요.",
-            })
+        if p["H1 Len"] == 0:
+            issues.append({"type": "H1 없음", "severity": "HIGH", "detail": "H1 태그 없음", "pages": [url], "fix": "페이지당 하나의 H1 태그 + 핵심 키워드 포함."})
 
-        if p["word_count"] < THIN_CONTENT_THRESHOLD and p["status_code"] == 200:
-            issues.append({
-                "type": "얇은 콘텐츠 (Thin Content)",
-                "severity": "MEDIUM",
-                "icon": "🟡",
-                "detail": f"단어 수 {p['word_count']}개 → 최소 {THIN_CONTENT_THRESHOLD}단어 이상 권장",
-                "pages": [url],
-                "recommendation": "콘텐츠를 보강하세요. FAQ, 관련 정보, 사용자 후기 등을 추가하면 효과적입니다.",
-            })
+        if p["Words"] < THIN_CONTENT_THRESHOLD and p["Status"] == 200:
+            issues.append({"type": "Thin Content", "severity": "MEDIUM", "detail": f"단어 수 {p['Words']}개 (최소 {THIN_CONTENT_THRESHOLD} 권장)", "pages": [url], "fix": "FAQ, 관련 정보, 사용자 후기 등으로 콘텐츠 보강."})
 
-        if p["images_missing_alt"] > 0:
-            issues.append({
-                "type": "이미지 Alt 텍스트 누락",
-                "severity": "LOW",
-                "icon": "🟢",
-                "detail": f"Alt 없는 이미지 {p['images_missing_alt']}개 / 전체 {p['total_images']}개",
-                "pages": [url],
-                "recommendation": "모든 이미지에 설명적인 alt 텍스트를 추가하세요.",
-            })
+        if p["Alt Missing"] > 0:
+            issues.append({"type": "Alt 누락", "severity": "LOW", "detail": f"Alt 없는 이미지 {p['Alt Missing']}/{p['Images']}개", "pages": [url], "fix": "모든 이미지에 설명적인 alt 텍스트를 추가하세요."})
 
-        if p["status_code"] and p["status_code"] >= 400:
-            issues.append({
-                "type": f"HTTP {p['status_code']} 에러",
-                "severity": "HIGH",
-                "icon": "🔴",
-                "detail": f"HTTP 상태 코드 {p['status_code']}",
-                "pages": [url],
-                "recommendation": "깨진 링크를 수정하거나 301 리다이렉트를 설정하세요.",
-            })
+        if p["Status"] and p["Status"] >= 400:
+            issues.append({"type": f"HTTP {p['Status']}", "severity": "HIGH", "detail": f"HTTP {p['Status']} 에러", "pages": [url], "fix": "깨진 링크 수정 또는 301 리다이렉트 설정."})
 
         inc = incoming_map.get(url, 0)
-        if inc < MIN_INCOMING_LINKS and p["status_code"] == 200:
-            issues.append({
-                "type": "들어오는 내부 링크 부족",
-                "severity": "MEDIUM",
-                "icon": "🟡",
-                "detail": f"들어오는 내부 링크 {inc}개 → 최소 {MIN_INCOMING_LINKS}개 이상 권장",
-                "pages": [url],
-                "recommendation": "이 페이지로 내부 링크를 더 추가하세요 (실크 로드 전략 권장).",
-            })
+        if inc < MIN_INCOMING_LINKS and p["Status"] == 200:
+            issues.append({"type": "Inlinks 부족", "severity": "MEDIUM", "detail": f"들어오는 링크 {inc}개 (최소 {MIN_INCOMING_LINKS} 권장)", "pages": [url], "fix": "내부 링크 추가 (실크 로드 전략 권장)."})
 
         score = pagespeed_scores.get(url)
         if score is not None and score < PAGESPEED_THRESHOLD:
-            issues.append({
-                "type": "PageSpeed 점수 낮음",
-                "severity": "HIGH" if score < 50 else "MEDIUM",
-                "icon": "🔴" if score < 50 else "🟡",
-                "detail": f"Mobile PageSpeed 점수: {score}/100",
-                "pages": [url],
-                "recommendation": "이미지 최적화, Lazy Loading, 렌더링 차단 리소스 제거 추천.",
-            })
+            issues.append({"type": "PageSpeed 낮음", "severity": "HIGH" if score < 50 else "MEDIUM", "detail": f"Mobile 점수: {score}/100", "pages": [url], "fix": "이미지 최적화, Lazy Loading, 렌더링 차단 리소스 제거."})
 
-        if p["load_time"] > 3.0:
-            issues.append({
-                "type": "페이지 로드 시간 느림",
-                "severity": "MEDIUM",
-                "icon": "🟡",
-                "detail": f"로드 시간: {p['load_time']}초",
-                "pages": [url],
-                "recommendation": "서버 응답 시간 점검, CDN 사용 및 캐싱 설정을 확인하세요.",
-            })
+        if p["Load (s)"] > 3.0:
+            issues.append({"type": "느린 로딩", "severity": "MEDIUM", "detail": f"로드 시간 {p['Load (s)']}초", "pages": [url], "fix": "서버 응답 시간, CDN, 캐싱 설정 점검."})
 
     severity_order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
     issues.sort(key=lambda x: severity_order.get(x["severity"], 9))
@@ -408,64 +377,76 @@ def run_diagnostics(pages, incoming_map, pagespeed_scores):
 # UI
 # ══════════════════════════════════════════════════════════════════════════════
 
-# ── 사이드바 ──────────────────────────────────────────────────────────────────
+# ── 헤더 ─────────────────────────────────────────────────────────────────────
+st.markdown("""
+<div class="sf-header">
+    <h1>🔍 SEO Diagnostic Pro</h1>
+    <span>Screaming Frog Style &middot; v2.0</span>
+</div>
+""", unsafe_allow_html=True)
+
+# ── 상단 입력바 (Screaming Frog처럼 URL 바 상단에) ────────────────────────────
+with st.container():
+    col_url, col_mode, col_max, col_delay, col_btn = st.columns([4, 2, 1, 1, 1])
+
+    with col_url:
+        base_url = st.text_input("URL", placeholder="https://example.com", label_visibility="collapsed")
+    with col_mode:
+        mode = st.selectbox("모드", ["크롤링", "사이트맵"], label_visibility="collapsed")
+    with col_max:
+        max_pages = st.number_input("Max", min_value=5, max_value=1000, value=50, step=5, label_visibility="collapsed")
+    with col_delay:
+        crawl_delay = st.number_input("Delay", min_value=0.1, max_value=3.0, value=0.5, step=0.1, label_visibility="collapsed")
+    with col_btn:
+        run_btn = st.button("▶ Start", use_container_width=True, type="primary")
+
+# ── 사이드바: 설정 ────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.title("🔍 SEO Diagnostic Pro")
-    st.caption("Screaming Frog 스타일 완전 자동 SEO 진단")
-    st.divider()
-
-    base_url = st.text_input(
-        "분석할 URL",
-        placeholder="https://example.com",
-        help="분석할 웹사이트의 루트 URL을 입력하세요",
-    )
-
+    st.markdown("### ⚙️ 설정")
     api_key = st.text_input(
         "PageSpeed API 키 (선택)",
-        type="password",
-        placeholder="Enter로 스킵 가능",
-        help="Google PageSpeed Insights API 키. 없으면 비워두세요.",
+        placeholder="비워두면 스킵",
+        help="Google PageSpeed Insights API 키",
     )
-
-    mode = st.radio(
-        "수집 모드",
-        options=["크롤링 (링크 따라가며 수집)", "사이트맵 기반 (더 빠르고 정확)"],
-        index=0,
-    )
-
-    max_pages = st.slider("최대 분석 페이지 수", 5, 500, 50, step=5)
-    crawl_delay = st.slider("크롤링 딜레이 (초)", 0.1, 2.0, 0.5, step=0.1)
-
     st.divider()
-    run_btn = st.button("🚀 분석 시작", use_container_width=True, type="primary")
-
-
-# ── 메인 영역 ─────────────────────────────────────────────────────────────────
-if not run_btn:
+    st.markdown("### 📌 진단 기준")
+    st.caption(f"Title: {TITLE_MIN}~{TITLE_MAX}자")
+    st.caption(f"Description: {DESC_MIN}~{DESC_MAX}자")
+    st.caption(f"Thin Content: {THIN_CONTENT_THRESHOLD}단어 미만")
+    st.caption(f"내부 링크 최소: {MIN_INCOMING_LINKS}개")
+    st.caption(f"PageSpeed 기준: {PAGESPEED_THRESHOLD}점")
+    st.divider()
+    st.markdown("### 📖 사용법")
     st.markdown("""
-    # 🔍 SEO Diagnostic Pro
+    1. 상단에 URL 입력
+    2. 모드/페이지수/딜레이 설정
+    3. **▶ Start** 클릭
+    4. 실시간으로 결과 확인!
+    """)
 
-    **Screaming Frog + Sitebulb + Ahrefs 수준의 완전 자동 SEO 진단 툴**
-
-    ---
-
-    ### 분석 항목
-    | 항목 | 설명 |
-    |------|------|
-    | **Title / Meta Description** | 길이 검사 + 중복 탐지 |
-    | **H1 태그** | 존재 여부 + 내용 |
-    | **콘텐츠 단어 수** | 300단어 미만 = 얇은 콘텐츠 경고 |
-    | **내부 링크** | Outgoing + Incoming 분석 |
-    | **이미지 Alt** | 누락된 Alt 태그 탐지 |
-    | **HTTP 상태 코드** | 4xx/5xx 에러 탐지 |
-    | **페이지 로드 시간** | 3초 이상 = 경고 |
-    | **PageSpeed** | Mobile 점수 (API 키 필요) |
-    | **사이트 구조** | 폴더 트리 시각화 |
-
-    ### 사용법
-    1. 왼쪽 사이드바에 URL 입력
-    2. 수집 모드 및 페이지 수 설정
-    3. **🚀 분석 시작** 클릭!
+# ── 메인: 대기 화면 ──────────────────────────────────────────────────────────
+if not run_btn:
+    st.markdown("---")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.markdown("""
+    #### 📊 실시간 크롤링
+    수집과 동시에 데이터 테이블이
+    업데이트됩니다
+    """)
+    c2.markdown("""
+    #### 🔍 Title & Description
+    길이, 중복, 누락을
+    자동 탐지합니다
+    """)
+    c3.markdown("""
+    #### 🔗 내부 링크 분석
+    Inlinks / Outlinks를
+    한눈에 확인
+    """)
+    c4.markdown("""
+    #### ⚡ PageSpeed
+    Google PSI Mobile
+    점수 자동 측정
     """)
     st.stop()
 
@@ -478,44 +459,134 @@ if not base_url.startswith(("http://", "https://")):
     base_url = "https://" + base_url
 base_url = base_url.rstrip("/")
 base_domain = urlparse(base_url).netloc
-is_sitemap_mode = "사이트맵" in mode
-
+is_sitemap_mode = mode == "사이트맵"
 session = build_session()
 
-# ── 크롤링 실행 ──────────────────────────────────────────────────────────────
-st.header(f"🔍 {base_domain} 분석 중...")
 
-progress_bar = st.progress(0)
-status_text = st.empty()
+# ══════════════════════════════════════════════════════════════════════════════
+# 실시간 크롤링 (Screaming Frog 스타일)
+# ══════════════════════════════════════════════════════════════════════════════
+
+st.markdown("---")
+
+# 실시간 상태 표시 영역
+status_container = st.container()
+with status_container:
+    stat_cols = st.columns([1, 1, 1, 1, 1])
+    ph_crawled = stat_cols[0].empty()
+    ph_queued = stat_cols[1].empty()
+    ph_elapsed = stat_cols[2].empty()
+    ph_eta = stat_cols[3].empty()
+    ph_speed = stat_cols[4].empty()
+
+progress_bar = st.progress(0.0)
+status_line = st.empty()
+
+# 실시간 데이터 테이블 영역
+st.markdown("### 📋 수집 데이터 (실시간)")
+table_placeholder = st.empty()
 
 pages = []
+all_internal_links = []  # (source, target) 저장용
+crawl_start_time = time.time()
 
+
+def update_live_display(pages_so_far, current_url, total_target, queue_size):
+    """실시간 UI 업데이트"""
+    count = len(pages_so_far)
+    elapsed = time.time() - crawl_start_time
+
+    # 속도 계산
+    speed = count / elapsed if elapsed > 0 else 0
+    eta = (total_target - count) / speed if speed > 0 and count < total_target else 0
+
+    # 진행률
+    pct = min(count / total_target, 1.0) if total_target > 0 else 0
+    progress_bar.progress(pct)
+
+    # 상태 메트릭
+    ph_crawled.metric("Crawled", f"{count}/{total_target}")
+    ph_queued.metric("Queue", queue_size)
+    ph_elapsed.metric("Elapsed", fmt_time(elapsed))
+    ph_eta.metric("ETA", fmt_time(eta))
+    ph_speed.metric("Speed", f"{speed:.1f} pg/s")
+
+    # 현재 URL
+    short_url = current_url if len(current_url) < 80 else current_url[:77] + "..."
+    status_line.markdown(
+        f'<div class="crawl-status">'
+        f'<span class="count">[{count}/{total_target}]</span> '
+        f'<span class="url">{short_url}</span> '
+        f'<span class="eta">ETA {fmt_time(eta)}</span> '
+        f'({pct*100:.0f}%)'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # 실시간 데이터 테이블
+    if pages_so_far:
+        display_cols = ["URL", "Status", "Title", "Title Len", "Meta Desc", "Desc Len",
+                        "H1", "Canonical", "Words", "Outlinks", "Alt Missing", "Load (s)"]
+        df = pd.DataFrame(pages_so_far)[display_cols]
+        # URL 짧게
+        df["URL"] = df["URL"].apply(lambda x: urlparse(x).path or "/")
+        table_placeholder.dataframe(df, use_container_width=True, hide_index=True, height=400)
+
+
+# ── 사이트맵 모드 ────────────────────────────────────────────────────────────
 if is_sitemap_mode:
-    status_text.text("사이트맵 탐색 중...")
+    status_line.markdown('<div class="crawl-status">사이트맵 탐색 중...</div>', unsafe_allow_html=True)
     sitemaps = discover_sitemaps(base_url, session)
     if sitemaps:
-        status_text.text(f"사이트맵 발견: {', '.join(sitemaps)}")
         all_urls = set()
         for sm in sitemaps:
             all_urls |= parse_sitemap(sm, session, max_pages, base_domain)
         all_urls = sorted(all_urls)[:max_pages]
-        status_text.text(f"사이트맵에서 {len(all_urls)}개 URL 발견. 분석 시작...")
+        total = len(all_urls)
+        status_line.markdown(f'<div class="crawl-status">사이트맵에서 <span class="count">{total}</span>개 URL 발견. 분석 시작...</div>', unsafe_allow_html=True)
 
-        for i, url in enumerate(all_urls, 1):
-            status_text.text(f"분석 중... [{i}/{len(all_urls)}] {url}")
-            progress_bar.progress(i / len(all_urls))
+        for i, url in enumerate(all_urls):
             page = analyze_page(url, session)
             pages.append(page)
+            all_internal_links.extend([(url, link) for link in page["_internal_links"]])
+            update_live_display(pages, url, total, total - i - 1)
             time.sleep(crawl_delay)
     else:
         st.warning("사이트맵을 찾지 못했습니다. 크롤링 모드로 전환합니다.")
         is_sitemap_mode = False
 
+# ── 크롤링 모드 ──────────────────────────────────────────────────────────────
 if not is_sitemap_mode and not pages:
-    pages = crawl_site(base_url, session, max_pages, base_domain, crawl_delay, progress_bar, status_text)
+    visited = set()
+    queue = [normalize_url(base_url)]
 
+    while queue and len(visited) < max_pages:
+        url = queue.pop(0)
+        if url in visited:
+            continue
+        visited.add(url)
+
+        page = analyze_page(url, session)
+        pages.append(page)
+        all_internal_links.extend([(url, link) for link in page["_internal_links"]])
+
+        for link in page["_internal_links"]:
+            if link not in visited:
+                queue.append(link)
+
+        update_live_display(pages, url, max_pages, len(queue))
+        time.sleep(crawl_delay)
+
+# ── 크롤링 완료 ──────────────────────────────────────────────────────────────
+elapsed_total = time.time() - crawl_start_time
 progress_bar.progress(1.0)
-status_text.text(f"분석 완료! 총 {len(pages)}개 페이지")
+status_line.markdown(
+    f'<div class="crawl-status" style="border-color:#3fb950;">'
+    f'✅ <span class="count">크롤링 완료!</span> '
+    f'{len(pages)}개 페이지 · {fmt_time(elapsed_total)} 소요'
+    f'</div>',
+    unsafe_allow_html=True,
+)
 
 if not pages:
     st.error("분석할 페이지가 없습니다. URL을 확인해주세요.")
@@ -524,175 +595,290 @@ if not pages:
 # ── 들어오는 내부 링크 계산 ───────────────────────────────────────────────────
 incoming_map = defaultdict(int)
 for p in pages:
-    for link in p["outgoing_internal_links"]:
+    for link in p["_internal_links"]:
         incoming_map[link] += 1
+
+# Inlinks 열 추가
+for p in pages:
+    p["Inlinks"] = incoming_map.get(p["URL"], 0)
 
 # ── PageSpeed 수집 ────────────────────────────────────────────────────────────
 pagespeed_scores = {}
 if api_key:
+    st.markdown("### ⚡ PageSpeed Insights 수집 중...")
     ps_bar = st.progress(0)
-    ps_text = st.empty()
-    ok_pages = [p for p in pages if p["status_code"] == 200]
+    ps_status = st.empty()
+    ok_pages = [p for p in pages if p["Status"] == 200]
     for i, p in enumerate(ok_pages, 1):
-        ps_text.text(f"PageSpeed 조회 중... [{i}/{len(ok_pages)}] {p['url']}")
+        ps_status.text(f"[{i}/{len(ok_pages)}] {p['URL']}")
         ps_bar.progress(i / len(ok_pages))
-        score = get_pagespeed_score(p["url"], api_key)
+        score = get_pagespeed_score(p["URL"], api_key)
         if score is not None:
-            pagespeed_scores[p["url"]] = score
+            pagespeed_scores[p["URL"]] = score
+            p["PageSpeed"] = score
     ps_bar.empty()
-    ps_text.empty()
+    ps_status.empty()
 
-# ── 진단 실행 ─────────────────────────────────────────────────────────────────
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 결과 대시보드
+# ══════════════════════════════════════════════════════════════════════════════
+
 issues = run_diagnostics(pages, incoming_map, pagespeed_scores)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 결과 출력
-# ══════════════════════════════════════════════════════════════════════════════
+st.markdown("---")
 
-st.divider()
-
-# ── 요약 대시보드 ─────────────────────────────────────────────────────────────
-st.header("📊 요약 대시보드")
-
+# ── 요약 카드 ─────────────────────────────────────────────────────────────────
 high = sum(1 for i in issues if i["severity"] == "HIGH")
 med = sum(1 for i in issues if i["severity"] == "MEDIUM")
 low = sum(1 for i in issues if i["severity"] == "LOW")
+avg_load = round(sum(p["Load (s)"] for p in pages) / len(pages), 2)
+avg_words = round(sum(p["Words"] for p in pages) / len(pages))
 
-col1, col2, col3, col4, col5 = st.columns(5)
-col1.metric("총 페이지", len(pages))
-col2.metric("총 이슈", len(issues))
-col3.metric("🔴 HIGH", high)
-col4.metric("🟡 MEDIUM", med)
-col5.metric("🟢 LOW", low)
-
-avg_load = round(sum(p["load_time"] for p in pages) / len(pages), 2) if pages else 0
-avg_words = round(sum(p["word_count"] for p in pages) / len(pages)) if pages else 0
-
-col6, col7, col8, col9 = st.columns(4)
-col6.metric("평균 로드 시간", f"{avg_load}s")
-col7.metric("평균 단어 수", avg_words)
-col8.metric("총 이미지", sum(p["total_images"] for p in pages))
-col9.metric("Alt 누락 이미지", sum(p["images_missing_alt"] for p in pages))
-
-# ── 탭 구성 ──────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "🌳 사이트 구조",
-    "🔗 내부 링크",
-    "📋 페이지별 상세",
-    "⚠️ 진단 리포트",
-    "💾 JSON 다운로드",
-])
-
-# ── TAB 1: 사이트 구조 트리 ───────────────────────────────────────────────────
-with tab1:
-    st.subheader("사이트 구조 트리")
-    tree_str = build_tree_string([p["url"] for p in pages], base_domain)
-    st.code(tree_str, language=None)
-
-# ── TAB 2: 내부 링크 ─────────────────────────────────────────────────────────
-with tab2:
-    st.subheader("페이지별 들어오는 내부 링크 (Incoming Links)")
-
-    sorted_incoming = sorted(incoming_map.items(), key=lambda x: x[1], reverse=True)
-    all_urls_set = {p["url"] for p in pages}
-    orphans = all_urls_set - set(incoming_map.keys())
-
-    link_data = []
-    for url, count in sorted_incoming:
-        status = "⚠️ 부족" if count < MIN_INCOMING_LINKS else "✅ 양호"
-        link_data.append({"URL": url, "들어오는 링크 수": count, "상태": status})
-    for url in sorted(orphans):
-        link_data.append({"URL": url, "들어오는 링크 수": 0, "상태": "🚨 고아 페이지"})
-
-    st.dataframe(link_data, use_container_width=True, hide_index=True)
-
-# ── TAB 3: 페이지별 상세 ─────────────────────────────────────────────────────
-with tab3:
-    st.subheader("페이지별 상세 분석")
-
-    for p in pages:
-        url = p["url"]
-        inc = incoming_map.get(url, 0)
-        ps = pagespeed_scores.get(url, "-")
-        status_icon = "✅" if p["status_code"] == 200 else "❌"
-
-        with st.expander(f"{status_icon} {url} — {p['status_code']}"):
-            c1, c2, c3 = st.columns(3)
-            c1.metric("상태 코드", p["status_code"])
-            c2.metric("로드 시간", f"{p['load_time']}s")
-            c3.metric("단어 수", p["word_count"])
-
-            c4, c5, c6 = st.columns(3)
-            c4.metric("내부 링크 (Out)", len(p["outgoing_internal_links"]))
-            c5.metric("내부 링크 (In)", inc)
-            c6.metric("PageSpeed", ps)
-
-            st.markdown(f"""
-            | 항목 | 값 |
-            |---|---|
-            | **Title** ({p['title_length']}자) | {p['title'][:80] or '없음'} |
-            | **Description** ({p['meta_description_length']}자) | {p['meta_description'][:80] or '없음'} |
-            | **H1** | {'✅ ' + p['h1'][:60] if p['h1_exists'] else '❌ 없음'} |
-            | **Canonical** | {p['canonical'] or '없음'} |
-            | **이미지** | 전체 {p['total_images']}개, Alt 누락 {p['images_missing_alt']}개 |
-            """)
-
-# ── TAB 4: 진단 리포트 ───────────────────────────────────────────────────────
-with tab4:
-    st.subheader(f"자동 진단 리포트 — 총 {len(issues)}건")
-
-    severity_filter = st.multiselect(
-        "심각도 필터",
-        options=["HIGH", "MEDIUM", "LOW"],
-        default=["HIGH", "MEDIUM", "LOW"],
+cols = st.columns(7)
+metrics = [
+    ("총 페이지", len(pages), ""),
+    ("총 이슈", len(issues), ""),
+    ("🔴 HIGH", high, "red"),
+    ("🟡 MEDIUM", med, "yellow"),
+    ("🟢 LOW", low, "green"),
+    ("평균 로딩", f"{avg_load}s", ""),
+    ("평균 단어", avg_words, ""),
+]
+for col, (label, val, cls) in zip(cols, metrics):
+    col.markdown(
+        f'<div class="summary-card {cls}"><div class="num">{val}</div><div class="label">{label}</div></div>',
+        unsafe_allow_html=True,
     )
 
-    filtered = [i for i in issues if i["severity"] in severity_filter]
+st.markdown("")
 
-    for idx, issue in enumerate(filtered, 1):
-        with st.expander(f"{issue['icon']} [{issue['severity']}] {issue['type']} — {issue['detail'][:60]}"):
-            st.markdown(f"**문제:** {issue['detail']}")
-            st.markdown(f"**권장 조치:** {issue['recommendation']}")
-            st.markdown("**해당 페이지:**")
-            for pg in issue["pages"][:10]:
-                st.markdown(f"- `{pg}`")
-            if len(issue["pages"]) > 10:
-                st.caption(f"... 외 {len(issue['pages']) - 10}개 페이지")
+# ── 탭 구성 ──────────────────────────────────────────────────────────────────
+tab_all, tab_td, tab_links, tab_tree, tab_issues, tab_export = st.tabs([
+    "📋 전체 데이터",
+    "🏷️ Title & Description",
+    "🔗 내부 링크",
+    "🌳 사이트 구조",
+    "⚠️ 진단 리포트",
+    "💾 Export",
+])
 
-    if not filtered:
-        st.success("필터 조건에 해당하는 이슈가 없습니다! 🎉")
+# ── TAB: 전체 데이터 (Screaming Frog 메인 뷰) ────────────────────────────────
+with tab_all:
+    st.subheader("All Pages")
+    display_cols = ["URL", "Status", "Title", "Title Len", "Meta Desc", "Desc Len",
+                    "H1", "H1 Len", "Canonical", "Words", "Inlinks", "Outlinks",
+                    "Images", "Alt Missing", "Load (s)", "Error"]
+    if pagespeed_scores:
+        for p in pages:
+            if "PageSpeed" not in p:
+                p["PageSpeed"] = "-"
+        display_cols.append("PageSpeed")
 
-# ── TAB 5: JSON 다운로드 ─────────────────────────────────────────────────────
-with tab5:
-    st.subheader("JSON 리포트 다운로드")
+    df_all = pd.DataFrame(pages)
+    available_cols = [c for c in display_cols if c in df_all.columns]
+    st.dataframe(df_all[available_cols], use_container_width=True, hide_index=True, height=500)
+    st.caption(f"총 {len(pages)}개 페이지 | 평균 로드 {avg_load}s | 평균 {avg_words}단어")
+
+# ── TAB: Title & Description (한눈에 보기) ───────────────────────────────────
+with tab_td:
+    st.subheader("Title & Description Overview")
+
+    td_data = []
+    for p in pages:
+        # Title 상태 판정
+        tl = p["Title Len"]
+        if tl == 0:
+            t_status = "❌ 없음"
+        elif tl < TITLE_MIN:
+            t_status = f"⚠️ 짧음 ({tl}자)"
+        elif tl > TITLE_MAX:
+            t_status = f"⚠️ 김 ({tl}자)"
+        else:
+            t_status = f"✅ 적정 ({tl}자)"
+
+        # Desc 상태 판정
+        dl = p["Desc Len"]
+        if dl == 0:
+            d_status = "❌ 없음"
+        elif dl < DESC_MIN:
+            d_status = f"⚠️ 짧음 ({dl}자)"
+        elif dl > DESC_MAX:
+            d_status = f"⚠️ 김 ({dl}자)"
+        else:
+            d_status = f"✅ 적정 ({dl}자)"
+
+        # H1 상태
+        h1_status = f"✅ {p['H1'][:30]}" if p["H1"] else "❌ 없음"
+
+        # Canonical 상태
+        canon = p["Canonical"]
+        if not canon:
+            c_status = "❌ 없음"
+        elif canon == p["URL"]:
+            c_status = "✅ Self"
+        else:
+            c_status = f"↗️ {canon[:40]}"
+
+        td_data.append({
+            "URL": urlparse(p["URL"]).path or "/",
+            "Title 상태": t_status,
+            "Title": p["Title"][:60],
+            "Desc 상태": d_status,
+            "Description": p["Meta Desc"][:60],
+            "H1 상태": h1_status,
+            "Canonical": c_status,
+        })
+
+    df_td = pd.DataFrame(td_data)
+    st.dataframe(df_td, use_container_width=True, hide_index=True, height=500)
+
+    # 요약
+    t_ok = sum(1 for p in pages if TITLE_MIN <= p["Title Len"] <= TITLE_MAX)
+    d_ok = sum(1 for p in pages if DESC_MIN <= p["Desc Len"] <= DESC_MAX)
+    h_ok = sum(1 for p in pages if p["H1 Len"] > 0)
+    c_ok = sum(1 for p in pages if p["Canonical"])
+
+    sc1, sc2, sc3, sc4 = st.columns(4)
+    sc1.metric("Title 적정", f"{t_ok}/{len(pages)}")
+    sc2.metric("Description 적정", f"{d_ok}/{len(pages)}")
+    sc3.metric("H1 있음", f"{h_ok}/{len(pages)}")
+    sc4.metric("Canonical 있음", f"{c_ok}/{len(pages)}")
+
+# ── TAB: 내부 링크 ───────────────────────────────────────────────────────────
+with tab_links:
+    st.subheader("Internal Links (Inlinks / Outlinks)")
+
+    link_data = []
+    all_urls_set = {p["URL"] for p in pages}
+    for p in pages:
+        url = p["URL"]
+        inc = incoming_map.get(url, 0)
+        if inc == 0:
+            status = "🚨 고아"
+        elif inc < MIN_INCOMING_LINKS:
+            status = "⚠️ 부족"
+        else:
+            status = "✅ 양호"
+        link_data.append({
+            "URL": urlparse(url).path or "/",
+            "Inlinks": inc,
+            "Outlinks": p["Outlinks"],
+            "상태": status,
+        })
+
+    df_links = pd.DataFrame(link_data)
+    df_links = df_links.sort_values("Inlinks", ascending=True)
+    st.dataframe(df_links, use_container_width=True, hide_index=True, height=400)
+
+    orphan_count = sum(1 for p in pages if incoming_map.get(p["URL"], 0) == 0)
+    weak_count = sum(1 for p in pages if 0 < incoming_map.get(p["URL"], 0) < MIN_INCOMING_LINKS)
+    lc1, lc2, lc3 = st.columns(3)
+    lc1.metric("🚨 고아 페이지", orphan_count)
+    lc2.metric("⚠️ 링크 부족", weak_count)
+    lc3.metric("✅ 양호", len(pages) - orphan_count - weak_count)
+
+# ── TAB: 사이트 구조 ─────────────────────────────────────────────────────────
+with tab_tree:
+    st.subheader("Site Structure")
+    tree_str = build_tree_string([p["URL"] for p in pages], base_domain)
+    st.code(tree_str, language=None)
+
+# ── TAB: 진단 리포트 ─────────────────────────────────────────────────────────
+with tab_issues:
+    st.subheader(f"Issues — {len(issues)}건")
+
+    # 필터
+    fc1, fc2 = st.columns([1, 3])
+    with fc1:
+        sev_filter = st.multiselect("심각도", ["HIGH", "MEDIUM", "LOW"], default=["HIGH", "MEDIUM", "LOW"])
+    with fc2:
+        type_options = sorted(set(i["type"] for i in issues))
+        type_filter = st.multiselect("유형", type_options, default=type_options)
+
+    filtered = [i for i in issues if i["severity"] in sev_filter and i["type"] in type_filter]
+
+    # 이슈 테이블
+    issue_table = []
+    for i in filtered:
+        badge = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "🟢"}.get(i["severity"], "")
+        issue_table.append({
+            "심각도": f"{badge} {i['severity']}",
+            "유형": i["type"],
+            "내용": i["detail"],
+            "조치": i["fix"],
+            "URL": urlparse(i["pages"][0]).path if i["pages"] else "",
+            "영향 페이지": len(i["pages"]),
+        })
+
+    if issue_table:
+        df_issues = pd.DataFrame(issue_table)
+        st.dataframe(df_issues, use_container_width=True, hide_index=True, height=500)
+    else:
+        st.success("이슈가 없습니다!")
+
+    # 이슈 유형별 요약
+    st.markdown("#### 유형별 요약")
+    type_summary = defaultdict(lambda: {"HIGH": 0, "MEDIUM": 0, "LOW": 0, "total": 0})
+    for i in issues:
+        type_summary[i["type"]][i["severity"]] += 1
+        type_summary[i["type"]]["total"] += 1
+
+    summary_rows = []
+    for t, counts in sorted(type_summary.items(), key=lambda x: -x[1]["total"]):
+        summary_rows.append({
+            "유형": t,
+            "🔴 HIGH": counts["HIGH"],
+            "🟡 MEDIUM": counts["MEDIUM"],
+            "🟢 LOW": counts["LOW"],
+            "합계": counts["total"],
+        })
+    st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+
+# ── TAB: Export ──────────────────────────────────────────────────────────────
+with tab_export:
+    st.subheader("Export")
 
     report = {
         "generated_at": datetime.now().isoformat(),
         "base_url": base_url,
         "total_pages": len(pages),
+        "crawl_time_seconds": round(elapsed_total, 1),
         "mode": "sitemap" if is_sitemap_mode else "crawl",
         "summary": {"high": high, "medium": med, "low": low, "total": len(issues)},
-        "pages": [],
-        "incoming_links": dict(sorted_incoming),
+        "pages": [{k: v for k, v in p.items() if not k.startswith("_")} for p in pages],
         "issues": issues,
     }
-    for p in pages:
-        page_data = dict(p)
-        page_data["incoming_links"] = incoming_map.get(p["url"], 0)
-        if p["url"] in pagespeed_scores:
-            page_data["pagespeed_mobile"] = pagespeed_scores[p["url"]]
-        report["pages"].append(page_data)
 
-    json_str = json.dumps(report, ensure_ascii=False, indent=2)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
 
-    st.download_button(
-        label="📥 JSON 리포트 다운로드",
-        data=json_str,
-        file_name=f"seo_report_{timestamp}.json",
-        mime="application/json",
-        use_container_width=True,
-    )
+    ec1, ec2 = st.columns(2)
+
+    with ec1:
+        json_str = json.dumps(report, ensure_ascii=False, indent=2)
+        st.download_button(
+            "📥 JSON 다운로드",
+            data=json_str,
+            file_name=f"seo_report_{timestamp}.json",
+            mime="application/json",
+            use_container_width=True,
+        )
+
+    with ec2:
+        # CSV 다운로드
+        export_cols = ["URL", "Status", "Title", "Title Len", "Meta Desc", "Desc Len",
+                       "H1", "H1 Len", "Canonical", "Words", "Inlinks", "Outlinks",
+                       "Images", "Alt Missing", "Load (s)"]
+        df_export = pd.DataFrame(pages)
+        available_export = [c for c in export_cols if c in df_export.columns]
+        csv_str = df_export[available_export].to_csv(index=False)
+        st.download_button(
+            "📥 CSV 다운로드",
+            data=csv_str,
+            file_name=f"seo_report_{timestamp}.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
 
     with st.expander("JSON 미리보기"):
         st.json(report)
