@@ -2,7 +2,7 @@
 
 **Screaming Frog 스타일 완전 자동 SEO 진단 웹 툴**
 
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://share.streamlit.io)
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://share.streamlit.io/deploy?repository=khai-dragon/seo-diagnostic-pro&branch=main&mainModule=app.py)
 
 ## 기능
 
