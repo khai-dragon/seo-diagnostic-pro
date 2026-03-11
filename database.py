@@ -490,15 +490,20 @@ def update_project(project_id: int, **kwargs):
 
 
 def delete_project(project_id: int):
-    """프로젝트와 관련된 크롤링 실행, 인사이트를 모두 삭제합니다."""
+    """프로젝트와 관련된 모든 데이터를 삭제합니다."""
     conn = get_db()
     try:
-        # 관련 데이터를 먼저 삭제 (외래 키 참조)
+        # crawl_runs를 참조하는 테이블 먼저 삭제
         conn.execute("DELETE FROM insights WHERE project_id = ?", (project_id,))
+        conn.execute("DELETE FROM page_changes WHERE project_id = ?", (project_id,))
+        conn.execute("DELETE FROM page_snapshots WHERE project_id = ?", (project_id,))
+        conn.execute("DELETE FROM pagespeed_data WHERE project_id = ?", (project_id,))
+        # projects를 참조하는 나머지 테이블 삭제
+        conn.execute("DELETE FROM sc_issues WHERE project_id = ?", (project_id,))
+        conn.execute("DELETE FROM sc_analytics WHERE project_id = ?", (project_id,))
+        conn.execute("DELETE FROM sc_connections WHERE project_id = ?", (project_id,))
         conn.execute("DELETE FROM excluded_urls WHERE project_id = ?", (project_id,))
-        conn.execute(
-            "DELETE FROM crawl_runs WHERE project_id = ?", (project_id,)
-        )
+        conn.execute("DELETE FROM crawl_runs WHERE project_id = ?", (project_id,))
         conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
         conn.commit()
     finally:
