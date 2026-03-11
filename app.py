@@ -1065,6 +1065,39 @@ def render_crawl_execution(project):
     - **딜레이**: {project['crawl_delay']}초
     """)
 
+    # 크롤 봇(User-Agent) 선택
+    with st.expander("🤖 크롤 봇 & 렌더링 설정", expanded=False):
+        bot_names = list(crawler.USER_AGENTS.keys())
+        selected_bot = st.selectbox(
+            "크롤 봇 (User-Agent)",
+            bot_names,
+            index=0,
+            help="검색엔진 봇, AI 봇, 브라우저 등 다양한 User-Agent로 크롤링합니다. "
+                 "사이트가 특정 봇을 차단하는지 테스트할 수 있습니다.",
+        )
+        st.caption(f"`{crawler.USER_AGENTS[selected_bot][:80]}...`" if len(crawler.USER_AGENTS[selected_bot]) > 80 else f"`{crawler.USER_AGENTS[selected_bot]}`")
+
+        col_js1, col_js2 = st.columns([1, 3])
+        with col_js1:
+            js_rendering = st.toggle("JavaScript 렌더링", value=False, key="js_render_toggle")
+        with col_js2:
+            if js_rendering:
+                st.info("🌐 Playwright 헤드리스 브라우저로 JavaScript를 실행한 후 페이지를 분석합니다. "
+                        "SPA/React/Vue 등 JS 기반 사이트에 유용하지만 크롤링 속도가 느려집니다.")
+            else:
+                st.caption("JavaScript를 실행하지 않고 서버 응답 HTML만 분석합니다.")
+
+        st.markdown("**봇 카테고리:**")
+        cat_cols = st.columns(4)
+        with cat_cols[0]:
+            st.markdown("🔍 **검색엔진**\n- Googlebot\n- Googlebot (스마트폰)\n- Bingbot\n- Naver Bot\n- Yandex Bot")
+        with cat_cols[1]:
+            st.markdown("🤖 **AI 봇**\n- GPTBot (OpenAI)\n- ChatGPT-User\n- ClaudeBot (Anthropic)\n- Google-Extended")
+        with cat_cols[2]:
+            st.markdown("📱 **모바일**\n- Safari (iPhone)\n- Samsung Internet")
+        with cat_cols[3]:
+            st.markdown("💻 **데스크톱**\n- Chrome (기본)\n- Safari (Mac)\n- Firefox\n- Edge")
+
     if st.button("▶ 크롤링 시작", type="primary", key="start_crawl"):
         # Create crawl run in DB
         run_id = db.create_crawl_run(project["id"])
@@ -1118,6 +1151,7 @@ def render_crawl_execution(project):
                 table_ph.dataframe(d, use_container_width=True, hide_index=True, height=400)
 
         # Run crawl
+        crawl_ua = crawler.USER_AGENTS.get(selected_bot)
         result = crawler.run_crawl(
             base_url=project["url"],
             mode=project.get("crawl_mode") or "full",
@@ -1125,6 +1159,8 @@ def render_crawl_execution(project):
             delay=float(project.get("crawl_delay") or 0.5),
             path=project.get("crawl_path", ""),
             progress_callback=progress_callback,
+            user_agent=crawl_ua,
+            js_rendering=js_rendering,
         )
 
         elapsed_total = time.time() - crawl_start

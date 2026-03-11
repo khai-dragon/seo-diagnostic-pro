@@ -127,7 +127,26 @@ def _fetch_with_playwright(url, timeout=30, max_retries=2):
 # 1. Constants — 설정 상수
 # ══════════════════════════════════════════════════════════════════════════════
 
-USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+# 크롤 봇 User-Agent 사전
+USER_AGENTS = {
+    "Chrome (기본)": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Googlebot": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+    "Googlebot (스마트폰)": "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+    "Bingbot": "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)",
+    "GPTBot (OpenAI)": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.2; +https://openai.com/gptbot)",
+    "ChatGPT-User": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ChatGPT-User/1.0; +https://openai.com/bot)",
+    "ClaudeBot (Anthropic)": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ClaudeBot/1.0; +https://www.anthropic.com)",
+    "Google-Extended (AI학습)": "Mozilla/5.0 (compatible; Google-Extended; +https://developers.google.com/search/docs/crawling-indexing/overview-google-crawlers)",
+    "Yandex Bot": "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)",
+    "Naver Bot": "Mozilla/5.0 (compatible; Yeti/1.1; +http://naver.me/spd)",
+    "Samsung Internet": "Mozilla/5.0 (Linux; Android 13; SAMSUNG SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/23.0 Chrome/115.0.0.0 Mobile Safari/537.36",
+    "Safari (iPhone)": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+    "Safari (Mac)": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+    "Firefox": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
+    "Edge": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0",
+}
+
+USER_AGENT = USER_AGENTS["Chrome (기본)"]
 REQUEST_TIMEOUT = 15
 TITLE_MIN, TITLE_MAX = 30, 60
 DESC_MIN, DESC_MAX = 120, 160
@@ -180,11 +199,12 @@ def is_same_domain(url, base_domain):
         return False
 
 
-def build_session():
+def build_session(user_agent=None):
     """크롤링용 requests.Session 생성 — 실제 브라우저처럼 동작"""
+    ua = user_agent or USER_AGENT
     s = requests.Session()
     s.headers.update({
-        "User-Agent": USER_AGENT,
+        "User-Agent": ua,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
         "Accept-Encoding": "gzip, deflate, br",
@@ -583,7 +603,7 @@ def detect_content_quality(soup, url, base_domain):
 # 5. Page analysis — 단일 페이지 분석
 # ══════════════════════════════════════════════════════════════════════════════
 
-def analyze_page(url, session, crawl_depth=0):
+def analyze_page(url, session, crawl_depth=0, js_rendering=False):
     """단일 URL을 가져와 모든 SEO 요소를 분석하여 딕셔너리로 반환"""
     r_dict = {
         "URL": url, "Status": None, "Title": "", "Title Len": 0,
@@ -601,20 +621,10 @@ def analyze_page(url, session, crawl_depth=0):
         "H1s": 0, "H2s": 0, "H3s": 0, "H4s": 0, "H5s": 0, "H6s": 0,
     }
     try:
-        start = time.time()
-        r = session.get(url, timeout=REQUEST_TIMEOUT, allow_redirects=True)
-        if r.status_code == 403:
-            session.headers.update({"Referer": url, "DNT": "1"})
-            r = session.get(url, timeout=REQUEST_TIMEOUT, allow_redirects=True)
-        r_dict["Load (s)"] = round(time.time() - start, 2)
-        r_dict["Status"] = r.status_code
-
         pw_used = False
-        need_playwright = (
-            r.status_code in (403, 406, 429, 503)
-            or (r.status_code == 200 and _is_waf_page(r.text))
-        )
-        if need_playwright and _PLAYWRIGHT_AVAILABLE:
+
+        # JS 렌더링 모드: Playwright로 직접 수집
+        if js_rendering and _PLAYWRIGHT_AVAILABLE:
             pw_html, pw_load = _fetch_with_playwright(url)
             if pw_html and len(pw_html) > 500:
                 r_dict["Load (s)"] = pw_load
@@ -623,9 +633,31 @@ def analyze_page(url, session, crawl_depth=0):
                 pw_used = True
 
         if not pw_used:
-            if r.status_code != 200 and not (300 <= r.status_code < 400):
-                return r_dict
-            soup = BeautifulSoup(r.content, "html.parser")
+            start = time.time()
+            r = session.get(url, timeout=REQUEST_TIMEOUT, allow_redirects=True)
+            if r.status_code == 403:
+                session.headers.update({"Referer": url, "DNT": "1"})
+                r = session.get(url, timeout=REQUEST_TIMEOUT, allow_redirects=True)
+            r_dict["Load (s)"] = round(time.time() - start, 2)
+            r_dict["Status"] = r.status_code
+
+            # WAF 감지 시 Playwright fallback
+            need_playwright = (
+                r.status_code in (403, 406, 429, 503)
+                or (r.status_code == 200 and _is_waf_page(r.text))
+            )
+            if need_playwright and _PLAYWRIGHT_AVAILABLE:
+                pw_html, pw_load = _fetch_with_playwright(url)
+                if pw_html and len(pw_html) > 500:
+                    r_dict["Load (s)"] = pw_load
+                    r_dict["Status"] = 200
+                    soup = BeautifulSoup(pw_html, "html.parser")
+                    pw_used = True
+
+            if not pw_used:
+                if r.status_code != 200 and not (300 <= r.status_code < 400):
+                    return r_dict
+                soup = BeautifulSoup(r.content, "html.parser")
         tag = soup.find("title")
         if tag and tag.string:
             r_dict["Title"] = tag.string.strip()
@@ -1375,28 +1407,18 @@ def _analyze_robots_txt(base_url, session):
     return info
 
 
-def run_full_crawl(base_url, max_pages, delay, progress_callback=None):
+def run_full_crawl(base_url, max_pages, delay, progress_callback=None,
+                   user_agent=None, js_rendering=False):
     """
     BFS 전체 크롤링.
-    루트 URL에서 시작하여 내부 링크를 따라 모든 페이지를 수집합니다.
-
-    Args:
-        base_url: 시작 URL
-        max_pages: 최대 수집 페이지 수
-        delay: 요청 간 딜레이(초)
-        progress_callback(current_count, total, current_url): 진행 상황 콜백
-
-    Returns:
-        dict: {'pages', 'issues', 'incoming_map', 'elapsed', 'summary'}
     """
     if not base_url.startswith(("http://", "https://")):
         base_url = "https://" + base_url
     base_url = base_url.rstrip("/")
     base_domain = urlparse(base_url).netloc
-    session = build_session()
+    session = build_session(user_agent=user_agent)
     crawl_start = time.time()
 
-    # robots.txt 분석
     robots_info = _analyze_robots_txt(base_url, session)
 
     visited = set()
@@ -1410,7 +1432,7 @@ def run_full_crawl(base_url, max_pages, delay, progress_callback=None):
             continue
         visited.add(url)
         cd = depth_map.get(url, 0)
-        page = analyze_page(url, session, cd)
+        page = analyze_page(url, session, cd, js_rendering=js_rendering)
         pages.append(page)
         for link in page["_internal_links"]:
             if link not in visited:
@@ -1428,7 +1450,6 @@ def run_full_crawl(base_url, max_pages, delay, progress_callback=None):
             sitemap_urls = set()
             for sm in sitemaps:
                 sitemap_urls |= parse_sitemap(sm, session, max_pages, base_domain)
-            # 이미 수집한 URL 제외
             new_urls = sorted(sitemap_urls - visited)[:max_pages - len(pages)]
             if new_urls and progress_callback:
                 progress_callback(len(pages), len(new_urls) + len(pages),
@@ -1436,7 +1457,7 @@ def run_full_crawl(base_url, max_pages, delay, progress_callback=None):
             for i, surl in enumerate(new_urls):
                 if len(pages) >= max_pages:
                     break
-                page = analyze_page(surl, session, 1)
+                page = analyze_page(surl, session, 1, js_rendering=js_rendering)
                 pages.append(page)
                 if progress_callback:
                     progress_callback(len(pages), len(new_urls) + 1, surl)
@@ -1449,26 +1470,14 @@ def run_full_crawl(base_url, max_pages, delay, progress_callback=None):
     return result
 
 
-def run_sitemap_crawl(base_url, max_pages, delay, progress_callback=None):
-    """
-    사이트맵 기반 크롤링.
-    robots.txt 또는 기본 경로에서 사이트맵을 찾아 URL을 수집합니다.
-
-    Args:
-        base_url: 기준 URL
-        max_pages: 최대 수집 페이지 수
-        delay: 요청 간 딜레이(초)
-        progress_callback(current_count, total, current_url): 진행 상황 콜백
-
-    Returns:
-        dict: {'pages', 'issues', 'incoming_map', 'elapsed', 'summary'}
-        사이트맵이 없으면 빈 pages 반환
-    """
+def run_sitemap_crawl(base_url, max_pages, delay, progress_callback=None,
+                      user_agent=None, js_rendering=False):
+    """사이트맵 기반 크롤링."""
     if not base_url.startswith(("http://", "https://")):
         base_url = "https://" + base_url
     base_url = base_url.rstrip("/")
     base_domain = urlparse(base_url).netloc
-    session = build_session()
+    session = build_session(user_agent=user_agent)
     crawl_start = time.time()
 
     sitemaps = discover_sitemaps(base_url, session)
@@ -1486,7 +1495,7 @@ def run_sitemap_crawl(base_url, max_pages, delay, progress_callback=None):
     total = len(all_urls)
 
     for i, url in enumerate(all_urls):
-        page = analyze_page(url, session, 0)
+        page = analyze_page(url, session, 0, js_rendering=js_rendering)
         pages.append(page)
         if progress_callback:
             progress_callback(len(pages), total, url)
@@ -1497,28 +1506,15 @@ def run_sitemap_crawl(base_url, max_pages, delay, progress_callback=None):
     return _build_crawl_result(pages, incoming_map, issues, crawl_start)
 
 
-def run_path_crawl(base_url, path, max_pages, delay, progress_callback=None):
-    """
-    특정 경로 하위만 크롤링.
-    지정된 path prefix 아래의 URL만 BFS로 수집합니다.
-
-    Args:
-        base_url: 기준 URL
-        path: 크롤링할 경로 (예: '/blog/')
-        max_pages: 최대 수집 페이지 수
-        delay: 요청 간 딜레이(초)
-        progress_callback(current_count, total, current_url): 진행 상황 콜백
-
-    Returns:
-        dict: {'pages', 'issues', 'incoming_map', 'elapsed', 'summary'}
-    """
+def run_path_crawl(base_url, path, max_pages, delay, progress_callback=None,
+                   user_agent=None, js_rendering=False):
+    """특정 경로 하위만 크롤링."""
     if not base_url.startswith(("http://", "https://")):
         base_url = "https://" + base_url
     base_url = base_url.rstrip("/")
-    session = build_session()
+    session = build_session(user_agent=user_agent)
     crawl_start = time.time()
 
-    # 경로 정규화
     path_prefix = path.strip() or "/"
     if not path_prefix.startswith("/"):
         path_prefix = "/" + path_prefix
@@ -1537,7 +1533,7 @@ def run_path_crawl(base_url, path, max_pages, delay, progress_callback=None):
             continue
         visited.add(url)
         cd = depth_map.get(url, 0)
-        page = analyze_page(url, session, cd)
+        page = analyze_page(url, session, cd, js_rendering=js_rendering)
         pages.append(page)
         for link in page["_internal_links"]:
             if link not in visited:
@@ -1554,29 +1550,16 @@ def run_path_crawl(base_url, path, max_pages, delay, progress_callback=None):
     return _build_crawl_result(pages, incoming_map, issues, crawl_start)
 
 
-def run_mixed_crawl(base_url, max_pages, delay, progress_callback=None):
-    """
-    사이트맵 + 크롤링 혼합 모드.
-    1단계: 사이트맵에서 URL 수집
-    2단계: 수집된 페이지의 내부 링크를 따라 추가 크롤링
-
-    Args:
-        base_url: 기준 URL
-        max_pages: 최대 수집 페이지 수
-        delay: 요청 간 딜레이(초)
-        progress_callback(current_count, total, current_url): 진행 상황 콜백
-
-    Returns:
-        dict: {'pages', 'issues', 'incoming_map', 'elapsed', 'summary'}
-    """
+def run_mixed_crawl(base_url, max_pages, delay, progress_callback=None,
+                    user_agent=None, js_rendering=False):
+    """사이트맵 + 크롤링 혼합 모드."""
     if not base_url.startswith(("http://", "https://")):
         base_url = "https://" + base_url
     base_url = base_url.rstrip("/")
     base_domain = urlparse(base_url).netloc
-    session = build_session()
+    session = build_session(user_agent=user_agent)
     crawl_start = time.time()
 
-    # 1단계: 사이트맵 크롤링
     sitemaps = discover_sitemaps(base_url, session)
     pages = []
 
@@ -1585,16 +1568,14 @@ def run_mixed_crawl(base_url, max_pages, delay, progress_callback=None):
         for sm in sitemaps:
             all_urls |= parse_sitemap(sm, session, max_pages, base_domain)
         all_urls = sorted(all_urls)[:max_pages]
-        total = len(all_urls)
 
         for i, url in enumerate(all_urls):
-            page = analyze_page(url, session, 0)
+            page = analyze_page(url, session, 0, js_rendering=js_rendering)
             pages.append(page)
             if progress_callback:
                 progress_callback(len(pages), max_pages, url)
             time.sleep(delay)
 
-    # 2단계: 추가 크롤링으로 미발견 페이지 탐색
     sitemap_urls = {p["URL"] for p in pages}
     remaining = max_pages - len(pages)
     if remaining > 0:
@@ -1609,7 +1590,7 @@ def run_mixed_crawl(base_url, max_pages, delay, progress_callback=None):
             if url in visited:
                 continue
             visited.add(url)
-            page = analyze_page(url, session, 1)
+            page = analyze_page(url, session, 1, js_rendering=js_rendering)
             pages.append(page)
             for link in page["_internal_links"]:
                 if link not in visited:
@@ -1623,7 +1604,8 @@ def run_mixed_crawl(base_url, max_pages, delay, progress_callback=None):
     return _build_crawl_result(pages, incoming_map, issues, crawl_start)
 
 
-def run_crawl(base_url, mode, max_pages, delay, path='', progress_callback=None):
+def run_crawl(base_url, mode, max_pages, delay, path='', progress_callback=None,
+              user_agent=None, js_rendering=False):
     """
     메인 크롤 엔트리 포인트 — 모드에 따라 적절한 크롤 함수로 디스패치.
 
@@ -1633,7 +1615,9 @@ def run_crawl(base_url, mode, max_pages, delay, path='', progress_callback=None)
         max_pages: 최대 수집 페이지 수
         delay: 요청 간 딜레이(초)
         path: 'path' 모드일 때 크롤링할 경로 (예: '/blog/')
-        progress_callback(current_count, total, current_url): 진행 상황 콜백 (선택)
+        progress_callback: 진행 상황 콜백
+        user_agent: 사용할 User-Agent 문자열 (None이면 기본 Chrome)
+        js_rendering: True면 모든 페이지를 Playwright로 렌더링
 
     Returns:
         dict: {
@@ -1647,16 +1631,20 @@ def run_crawl(base_url, mode, max_pages, delay, path='', progress_callback=None)
     mode = mode.lower().strip()
 
     if mode == 'full':
-        return run_full_crawl(base_url, max_pages, delay, progress_callback)
+        return run_full_crawl(base_url, max_pages, delay, progress_callback,
+                              user_agent=user_agent, js_rendering=js_rendering)
     elif mode == 'sitemap':
-        result = run_sitemap_crawl(base_url, max_pages, delay, progress_callback)
-        # 사이트맵 없으면 자동 전체 크롤링 전환
+        result = run_sitemap_crawl(base_url, max_pages, delay, progress_callback,
+                                   user_agent=user_agent, js_rendering=js_rendering)
         if not result["pages"]:
-            return run_full_crawl(base_url, max_pages, delay, progress_callback)
+            return run_full_crawl(base_url, max_pages, delay, progress_callback,
+                                  user_agent=user_agent, js_rendering=js_rendering)
         return result
     elif mode == 'path':
-        return run_path_crawl(base_url, path, max_pages, delay, progress_callback)
+        return run_path_crawl(base_url, path, max_pages, delay, progress_callback,
+                              user_agent=user_agent, js_rendering=js_rendering)
     elif mode == 'mixed':
-        return run_mixed_crawl(base_url, max_pages, delay, progress_callback)
+        return run_mixed_crawl(base_url, max_pages, delay, progress_callback,
+                               user_agent=user_agent, js_rendering=js_rendering)
     else:
         raise ValueError(f"Unknown crawl mode: '{mode}'. Use 'full', 'sitemap', 'path', or 'mixed'.")
