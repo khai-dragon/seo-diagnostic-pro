@@ -39,27 +39,86 @@ if _PLAYWRIGHT_AVAILABLE:
         pass
 
 
-def _fetch_with_playwright(url, timeout=20):
+_WAF_SIGNATURES = [
+    "unable to give you access",
+    "access denied",
+    "just a moment",          # Cloudflare
+    "checking your browser",  # Cloudflare
+    "akamai",
+    "incapsula",
+    "blocked",
+    "captcha",
+    "challenge",
+    "bot detection",
+    "human verification",
+]
+
+
+def _is_waf_page(html):
+    """HTML이 WAF 챌린지/차단 페이지인지 감지"""
+    if not html:
+        return True
+    lower = html.lower()
+    # 콘텐츠가 너무 짧으면 WAF 가능성 높음
+    if len(html) < 2000:
+        return True
+    for sig in _WAF_SIGNATURES:
+        if sig in lower:
+            # 실제 콘텐츠에 이 단어가 있을 수 있으므로 body 텍스트 길이도 확인
+            soup = BeautifulSoup(html, "html.parser")
+            body = soup.find("body")
+            if body and len(body.get_text(strip=True)) < 200:
+                return True
+    return False
+
+
+def _fetch_with_playwright(url, timeout=30, max_retries=2):
     """Playwright 헤드리스 브라우저로 페이지를 가져옵니다. WAF 차단 우회용."""
     if not _PLAYWRIGHT_AVAILABLE:
         return None, 0
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                ]
+            )
             context = browser.new_context(
                 user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
                 locale="ko-KR",
                 viewport={"width": 1920, "height": 1080},
+                java_script_enabled=True,
             )
+            # 자동화 감지 우회
+            context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+                Object.defineProperty(navigator, 'languages', {get: () => ['ko-KR', 'ko', 'en-US', 'en']});
+                window.chrome = {runtime: {}};
+            """)
             page = context.new_page()
             start = time.time()
             page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
-            # JS 렌더링 대기
-            page.wait_for_timeout(2000)
-            html = page.content()
+
+            # WAF JS 챌린지 통과 대기 — 단계적으로 대기 시간 늘림
+            html = None
+            for wait_sec in [3, 5, 8]:
+                page.wait_for_timeout(wait_sec * 1000)
+                html = page.content()
+                if not _is_waf_page(html):
+                    break
+
             load_time = round(time.time() - start, 2)
             browser.close()
-            return html, load_time
+
+            if html and not _is_waf_page(html):
+                return html, load_time
+            # WAF를 못 뚫었어도 받은 HTML은 반환 (일부 분석 가능)
+            if html and len(html) > 500:
+                return html, load_time
+            return None, 0
     except Exception:
         return None, 0
 
@@ -551,8 +610,11 @@ def analyze_page(url, session, crawl_depth=0):
         r_dict["Status"] = r.status_code
 
         pw_used = False
-        if r.status_code in (403, 406) and _PLAYWRIGHT_AVAILABLE:
-            # Playwright 헤드리스 브라우저로 재시도
+        need_playwright = (
+            r.status_code in (403, 406, 429, 503)
+            or (r.status_code == 200 and _is_waf_page(r.text))
+        )
+        if need_playwright and _PLAYWRIGHT_AVAILABLE:
             pw_html, pw_load = _fetch_with_playwright(url)
             if pw_html and len(pw_html) > 500:
                 r_dict["Load (s)"] = pw_load
@@ -1358,6 +1420,27 @@ def run_full_crawl(base_url, max_pages, delay, progress_callback=None):
         if progress_callback:
             progress_callback(len(pages), max_pages, url)
         time.sleep(delay)
+
+    # WAF 감지: 1페이지만 수집되고 내부 링크가 없으면 sitemap fallback
+    if len(pages) <= 1 and max_pages > 1:
+        sitemaps = discover_sitemaps(base_url, session)
+        if sitemaps:
+            sitemap_urls = set()
+            for sm in sitemaps:
+                sitemap_urls |= parse_sitemap(sm, session, max_pages, base_domain)
+            # 이미 수집한 URL 제외
+            new_urls = sorted(sitemap_urls - visited)[:max_pages - len(pages)]
+            if new_urls and progress_callback:
+                progress_callback(len(pages), len(new_urls) + len(pages),
+                                  f"[Sitemap fallback] {len(new_urls)}개 URL 발견")
+            for i, surl in enumerate(new_urls):
+                if len(pages) >= max_pages:
+                    break
+                page = analyze_page(surl, session, 1)
+                pages.append(page)
+                if progress_callback:
+                    progress_callback(len(pages), len(new_urls) + 1, surl)
+                time.sleep(delay)
 
     incoming_map = _compute_incoming_map(pages)
     issues = run_diagnostics(pages, incoming_map, {})
