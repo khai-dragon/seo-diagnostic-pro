@@ -1648,3 +1648,789 @@ def run_crawl(base_url, mode, max_pages, delay, path='', progress_callback=None,
                                user_agent=user_agent, js_rendering=js_rendering)
     else:
         raise ValueError(f"Unknown crawl mode: '{mode}'. Use 'full', 'sitemap', 'path', or 'mixed'.")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 10. AI/GEO — AI 검색 최적화 분석 엔진
+# ══════════════════════════════════════════════════════════════════════════════
+
+AI_BOT_AGENTS = {
+    # ── 학습용 (Training) ──
+    "GPTBot": {"company": "OpenAI", "tier": "학습", "purpose": "GPT 모델 학습 데이터 수집"},
+    "Google-Extended": {"company": "Google", "tier": "학습", "purpose": "Gemini AI 학습 데이터"},
+    "ClaudeBot": {"company": "Anthropic", "tier": "학습", "purpose": "Claude 모델 학습"},
+    "CCBot": {"company": "Common Crawl", "tier": "학습", "purpose": "오픈 데이터셋 (다수 AI 사용)"},
+    "Bytespider": {"company": "ByteDance", "tier": "학습", "purpose": "TikTok/모델 학습"},
+    "cohere-ai": {"company": "Cohere", "tier": "학습", "purpose": "Cohere 언어 모델 학습"},
+    "Diffbot": {"company": "Diffbot", "tier": "학습", "purpose": "구조화 데이터 추출"},
+    "Applebot-Extended": {"company": "Apple", "tier": "학습", "purpose": "Apple Intelligence/Siri"},
+    "meta-externalagent": {"company": "Meta", "tier": "학습", "purpose": "Meta AI 학습"},
+    "AI2Bot": {"company": "Allen AI", "tier": "학습", "purpose": "학술 AI 연구"},
+    # ── 검색용 (Search/Citation) ──
+    "OAI-SearchBot": {"company": "OpenAI", "tier": "검색", "purpose": "ChatGPT 검색 인용"},
+    "Claude-SearchBot": {"company": "Anthropic", "tier": "검색", "purpose": "Claude 검색 인덱싱"},
+    "PerplexityBot": {"company": "Perplexity", "tier": "검색", "purpose": "Perplexity AI 검색"},
+    "DuckAssistBot": {"company": "DuckDuckGo", "tier": "검색", "purpose": "DuckAssist AI 답변"},
+    "YouBot": {"company": "You.com", "tier": "검색", "purpose": "You.com AI 검색"},
+    "Amazonbot": {"company": "Amazon", "tier": "검색", "purpose": "Alexa/Amazon 기능"},
+    # ── 사용자용 (User-Initiated) ──
+    "ChatGPT-User": {"company": "OpenAI", "tier": "사용자", "purpose": "ChatGPT 사용자 링크 조회"},
+    "Claude-User": {"company": "Anthropic", "tier": "사용자", "purpose": "Claude 사용자 콘텐츠 조회"},
+    "Perplexity-User": {"company": "Perplexity", "tier": "사용자", "purpose": "Perplexity 사용자 인용"},
+}
+
+
+def analyze_ai_bot_access(base_url, session=None):
+    """robots.txt에서 AI 봇별 접근 허용/차단 상태 분석"""
+    if session is None:
+        session = build_session()
+
+    results = {}
+    robots_text = ""
+
+    try:
+        r = session.get(urljoin(base_url, "/robots.txt"), timeout=REQUEST_TIMEOUT)
+        if r.status_code != 200:
+            for bot, info in AI_BOT_AGENTS.items():
+                results[bot] = {**info, "status": "허용", "reason": "robots.txt 없음"}
+            return {"bots": results, "robots_exists": False, "robots_text": ""}
+        robots_text = r.text
+    except Exception:
+        for bot, info in AI_BOT_AGENTS.items():
+            results[bot] = {**info, "status": "확인불가", "reason": "robots.txt 접근 실패"}
+        return {"bots": results, "robots_exists": False, "robots_text": ""}
+
+    # Parse robots.txt into agent-specific rules
+    agent_rules = {}  # agent_name -> list of (directive, path)
+    current_agents = []
+
+    for line in robots_text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.lower().startswith("user-agent:"):
+            agent_name = line.split(":", 1)[1].strip()
+            if not current_agents or (current_agents and agent_rules.get(current_agents[-1])):
+                current_agents = [agent_name]
+            else:
+                current_agents.append(agent_name)
+            if agent_name not in agent_rules:
+                agent_rules[agent_name] = []
+        elif current_agents:
+            if line.lower().startswith(("disallow:", "allow:")):
+                directive = line.split(":", 1)[0].strip().lower()
+                path = line.split(":", 1)[1].strip()
+                for ag in current_agents:
+                    agent_rules.setdefault(ag, []).append((directive, path))
+
+    # Check each AI bot
+    for bot, info in AI_BOT_AGENTS.items():
+        bot_lower = bot.lower()
+        is_blocked = False
+        block_reason = ""
+
+        # Check bot-specific rules first
+        specific_rules = None
+        for agent_name, rules in agent_rules.items():
+            if agent_name.lower() == bot_lower:
+                specific_rules = rules
+                break
+
+        if specific_rules is not None:
+            for directive, path in specific_rules:
+                if directive == "disallow" and path == "/":
+                    is_blocked = True
+                    block_reason = f"User-agent: {bot} → Disallow: /"
+                    break
+                elif directive == "disallow" and path:
+                    is_blocked = True
+                    block_reason = f"User-agent: {bot} → Disallow: {path}"
+                elif directive == "allow" and path == "/":
+                    is_blocked = False
+                    block_reason = ""
+        else:
+            # Fall back to wildcard rules
+            wildcard_rules = agent_rules.get("*", [])
+            for directive, path in wildcard_rules:
+                if directive == "disallow" and path == "/":
+                    is_blocked = True
+                    block_reason = "User-agent: * → Disallow: /"
+                    break
+
+        if is_blocked:
+            results[bot] = {**info, "status": "차단", "reason": block_reason}
+        else:
+            results[bot] = {**info, "status": "허용", "reason": "접근 허용"}
+
+    return {"bots": results, "robots_exists": True, "robots_text": robots_text[:5000]}
+
+
+def check_llms_txt(base_url, session=None):
+    """llms.txt 파일 존재 및 유효성 검사"""
+    if session is None:
+        session = build_session()
+
+    result = {
+        "exists": False,
+        "url": urljoin(base_url.rstrip("/") + "/", "llms.txt"),
+        "content": "",
+        "has_h1": False,
+        "has_blockquote": False,
+        "has_sections": False,
+        "has_links": False,
+        "issues": [],
+        "score": 0,
+    }
+
+    try:
+        r = session.get(result["url"], timeout=REQUEST_TIMEOUT)
+        if r.status_code == 200 and len(r.text.strip()) > 10:
+            content = r.text
+            # Verify it looks like markdown, not HTML
+            if "<html" in content.lower()[:200] or "<head" in content.lower()[:200]:
+                return result
+
+            result["exists"] = True
+            result["content"] = content[:5000]
+
+            lines = content.strip().split("\n")
+            result["has_h1"] = any(l.strip().startswith("# ") for l in lines)
+            result["has_blockquote"] = any(l.strip().startswith("> ") for l in lines)
+            h2_count = sum(1 for l in lines if l.strip().startswith("## "))
+            result["has_sections"] = h2_count > 0
+            result["has_links"] = bool(re.search(r'\[.*?\]\(.*?\)', content))
+
+            score = 0
+            if result["has_h1"]:
+                score += 25
+            else:
+                result["issues"].append("H1 제목(# 사이트명)이 없습니다")
+            if result["has_blockquote"]:
+                score += 25
+            else:
+                result["issues"].append("사이트 설명 blockquote(> 설명)가 없습니다")
+            if result["has_sections"]:
+                score += 25
+            else:
+                result["issues"].append("콘텐츠 섹션(## 카테고리)이 없습니다")
+            if result["has_links"]:
+                score += 25
+            else:
+                result["issues"].append("주요 콘텐츠 링크가 없습니다")
+            result["score"] = score
+    except Exception:
+        pass
+
+    return result
+
+
+def calculate_eeat_score(eeat_info, schema_info, security_info=None, content_info=None):
+    """
+    E-E-A-T 시그널을 0~100 점수로 변환.
+    각 축 25점 만점.
+    """
+    details = {}
+
+    # ── Experience (경험) 25점 ──
+    exp = 0
+    exp_items = []
+    if eeat_info.get("has_author"):
+        exp += 8
+        exp_items.append(f"✅ 저자: {eeat_info.get('author_name', '있음')[:30]}")
+    else:
+        exp_items.append("❌ 저자 정보 없음")
+    if eeat_info.get("has_published_date"):
+        exp += 7
+        exp_items.append("✅ 게시일 표시")
+    else:
+        exp_items.append("❌ 게시일 없음")
+    if eeat_info.get("has_modified_date"):
+        exp += 5
+        exp_items.append("✅ 수정일 표시")
+    else:
+        exp_items.append("❌ 수정일 없음")
+    if eeat_info.get("has_reviews_schema"):
+        exp += 5
+        exp_items.append("✅ 리뷰/평점 스키마")
+    exp = min(exp, 25)
+    details["경험(Experience)"] = {"score": exp, "items": exp_items}
+
+    # ── Expertise (전문성) 25점 ──
+    expt = 0
+    expt_items = []
+    all_types = schema_info.get("all_types", [])
+    if schema_info.get("has_schema"):
+        expt += 5
+        expt_items.append(f"✅ 구조화 데이터: {', '.join(all_types[:5])}")
+    else:
+        expt_items.append("❌ 구조화 데이터 없음")
+    if any(t in all_types for t in ("Article", "BlogPosting", "NewsArticle", "TechArticle")):
+        expt += 4
+        expt_items.append("✅ 콘텐츠 타입 스키마")
+    if "FAQPage" in all_types:
+        expt += 5
+        expt_items.append("✅ FAQ 스키마 (AI 인용에 매우 유리)")
+    if "HowTo" in all_types:
+        expt += 3
+        expt_items.append("✅ HowTo 스키마")
+    wc = content_info.get("word_count", 0) if content_info else 0
+    if wc >= 2000:
+        expt += 5
+        expt_items.append(f"✅ 충분한 콘텐츠 ({wc}단어)")
+    elif wc >= 1000:
+        expt += 3
+        expt_items.append(f"⚠️ 보통 콘텐츠 ({wc}단어)")
+    elif wc >= 300:
+        expt += 1
+        expt_items.append(f"❌ 짧은 콘텐츠 ({wc}단어)")
+    else:
+        expt_items.append(f"❌ 매우 짧은 콘텐츠 ({wc}단어)")
+    vi = schema_info.get("validation_issues", [])
+    if not vi:
+        expt += 3
+        expt_items.append("✅ 스키마 유효성 통과")
+    else:
+        expt_items.append(f"⚠️ 스키마 오류 {len(vi)}건")
+    expt = min(expt, 25)
+    details["전문성(Expertise)"] = {"score": expt, "items": expt_items}
+
+    # ── Authoritativeness (권위) 25점 ──
+    auth = 0
+    auth_items = []
+    if eeat_info.get("has_org_schema"):
+        auth += 6
+        auth_items.append("✅ Organization 스키마")
+    else:
+        auth_items.append("❌ Organization 스키마 없음")
+    if eeat_info.get("has_breadcrumb"):
+        auth += 4
+        auth_items.append("✅ 브레드크럼 내비게이션")
+    else:
+        auth_items.append("❌ 브레드크럼 없음")
+    socials = eeat_info.get("social_links", [])
+    if socials:
+        auth += min(len(socials) * 2, 8)
+        auth_items.append(f"✅ 소셜 링크: {', '.join(socials)}")
+    else:
+        auth_items.append("❌ 소셜 미디어 링크 없음")
+    ext_count = content_info.get("external_links_count", 0) if content_info else 0
+    if ext_count >= 3:
+        auth += 4
+        auth_items.append(f"✅ 외부 인용 {ext_count}개")
+    elif ext_count >= 1:
+        auth += 2
+        auth_items.append(f"⚠️ 외부 인용 {ext_count}개 (3개 이상 권장)")
+    else:
+        auth_items.append("❌ 외부 인용 링크 없음")
+    if "Person" in all_types:
+        auth += 3
+        auth_items.append("✅ Person 스키마")
+    auth = min(auth, 25)
+    details["권위(Authoritativeness)"] = {"score": auth, "items": auth_items}
+
+    # ── Trust (신뢰) 25점 ──
+    trust = 0
+    trust_items = []
+    if eeat_info.get("has_about_link"):
+        trust += 5
+        trust_items.append("✅ About 페이지 링크")
+    else:
+        trust_items.append("❌ About 페이지 없음")
+    if eeat_info.get("has_contact_link"):
+        trust += 5
+        trust_items.append("✅ Contact 페이지 링크")
+    else:
+        trust_items.append("❌ Contact 페이지 없음")
+    if eeat_info.get("has_privacy_link"):
+        trust += 5
+        trust_items.append("✅ 개인정보처리방침")
+    else:
+        trust_items.append("❌ 개인정보처리방침 없음")
+    if eeat_info.get("has_terms_link"):
+        trust += 4
+        trust_items.append("✅ 이용약관")
+    else:
+        trust_items.append("❌ 이용약관 없음")
+    if security_info:
+        if security_info.get("is_https"):
+            trust += 3
+            trust_items.append("✅ HTTPS")
+        else:
+            trust_items.append("❌ HTTPS 미사용")
+        if security_info.get("has_hsts"):
+            trust += 3
+            trust_items.append("✅ HSTS 헤더")
+    trust = min(trust, 25)
+    details["신뢰(Trust)"] = {"score": trust, "items": trust_items}
+
+    total = details["경험(Experience)"]["score"] + details["전문성(Expertise)"]["score"] + \
+            details["권위(Authoritativeness)"]["score"] + details["신뢰(Trust)"]["score"]
+
+    if total >= 80:
+        grade, color = "A", "#3fb950"
+    elif total >= 60:
+        grade, color = "B", "#58a6ff"
+    elif total >= 40:
+        grade, color = "C", "#d29922"
+    elif total >= 20:
+        grade, color = "D", "#f0883e"
+    else:
+        grade, color = "F", "#f85149"
+
+    return {"score": total, "grade": grade, "color": color, "details": details}
+
+
+def calculate_ai_readiness(soup, schema_info, eeat_info, content_info, tech_info):
+    """
+    AI 검색 최적화 준비도 점수 (0~100).
+    6가지 차원으로 평가:
+    - 인용 준비도 (25%)
+    - 답변 적합성 (20%)
+    - 콘텐츠 권위 (20%)
+    - 지식 그래프 연동 (15%)
+    - 기술적 접근성 (10%)
+    - 차별화 (10%)
+    """
+    scores = {}
+    details = {}
+
+    body = soup.find("body") if soup else None
+    body_text = body.get_text(separator="\n", strip=True) if body else ""
+
+    # ══ 1. 인용 준비도 (Citation Readiness) — 25점 ══
+    cr = 0
+    cr_items = []
+
+    # 인용 가능한 문장 (20~150자, 팩트성)
+    sentences = [s.strip() for s in re.split(r'[.!?。！？]\s', body_text) if 20 <= len(s.strip()) <= 150]
+    quotable = len(sentences)
+    if quotable >= 10:
+        cr += 8
+    elif quotable >= 5:
+        cr += 5
+    elif quotable >= 2:
+        cr += 3
+    cr_items.append(f"인용 가능 문장: {quotable}개")
+
+    # 통계/수치 데이터
+    stats = re.findall(r'\d+[%％]|\d{1,3}(,\d{3})+|\d+\.\d+', body_text)
+    stat_count = len(stats)
+    if stat_count >= 5:
+        cr += 7
+    elif stat_count >= 2:
+        cr += 4
+    elif stat_count >= 1:
+        cr += 2
+    cr_items.append(f"통계/수치 데이터: {stat_count}개")
+
+    # 구조화된 목록
+    lists = soup.find_all(["ul", "ol"]) if soup else []
+    list_items = sum(len(l.find_all("li")) for l in lists)
+    if list_items >= 10:
+        cr += 6
+    elif list_items >= 5:
+        cr += 4
+    elif list_items >= 1:
+        cr += 2
+    cr_items.append(f"목록 항목: {list_items}개")
+
+    # 테이블 (AI가 매우 선호)
+    tables = soup.find_all("table") if soup else []
+    if tables:
+        cr += 4
+    cr_items.append(f"데이터 테이블: {len(tables)}개")
+
+    scores["인용 준비도"] = min(cr, 25)
+    details["인용 준비도"] = cr_items
+
+    # ══ 2. 답변 적합성 (Answer Alignment) — 20점 ══
+    aa = 0
+    aa_items = []
+
+    headings = soup.find_all(["h2", "h3"]) if soup else []
+    # 질문형 헤딩 체크
+    q_pattern = re.compile(
+        r'(무엇|어떻게|왜|언제|어디|누구|몇|할까|인가|일까|인지|방법|가이드|차이|비교|장단점|what|how|why|when|where|who|which|guide|tips|vs)\b',
+        re.I
+    )
+    question_headings = [h for h in headings if
+                         h.get_text(strip=True).rstrip().endswith(("?", "？")) or
+                         q_pattern.search(h.get_text(strip=True))]
+    q_ratio = len(question_headings) / max(len(headings), 1)
+    if q_ratio >= 0.4:
+        aa += 6
+    elif q_ratio >= 0.2:
+        aa += 4
+    elif q_ratio >= 0.1:
+        aa += 2
+    aa_items.append(f"질문형 헤딩: {len(question_headings)}/{len(headings)}개 ({round(q_ratio * 100)}%)")
+
+    # 첫 200자에 핵심 답변 포함
+    first_content = body_text[:200] if body_text else ""
+    if len(first_content) >= 100:
+        aa += 4
+        aa_items.append("✅ 도입부 100자 이상 (직접 답변 가능)")
+    else:
+        aa_items.append("❌ 도입부 콘텐츠 부족")
+
+    # 짧은 단락 비율 (2~3문장, AI 친화적)
+    paras = soup.find_all("p") if soup else []
+    short_paras = [p for p in paras if 20 < len(p.get_text(strip=True)) and
+                   len(p.get_text(strip=True).split(". ")) <= 3]
+    sp_ratio = len(short_paras) / max(len(paras), 1)
+    if sp_ratio >= 0.5:
+        aa += 4
+    elif sp_ratio >= 0.3:
+        aa += 2
+    aa_items.append(f"짧은 단락 비율: {round(sp_ratio * 100)}%")
+
+    # 코드 블록/pre (기술 콘텐츠에서 AI 인용 증가)
+    code_blocks = soup.find_all(["code", "pre"]) if soup else []
+    if code_blocks:
+        aa += 3
+        aa_items.append(f"코드/예시 블록: {len(code_blocks)}개")
+
+    # 정의형 구조 (dl/dt/dd)
+    defs = soup.find_all("dl") if soup else []
+    if defs:
+        aa += 3
+        aa_items.append(f"정의 목록: {len(defs)}개")
+
+    scores["답변 적합성"] = min(aa, 20)
+    details["답변 적합성"] = aa_items
+
+    # ══ 3. 콘텐츠 권위 (Content Authority) — 20점 ══
+    ca = 0
+    ca_items = []
+
+    if eeat_info.get("has_author"):
+        ca += 6
+        ca_items.append(f"✅ 저자: {eeat_info.get('author_name', '')[:30]}")
+    else:
+        ca_items.append("❌ 저자 정보 없음")
+
+    if eeat_info.get("has_published_date"):
+        ca += 4
+        ca_items.append("✅ 게시일 표시")
+    else:
+        ca_items.append("❌ 게시일 없음")
+
+    if eeat_info.get("has_modified_date"):
+        ca += 4
+        ca_items.append("✅ 수정일 표시 (최신성 신호)")
+    else:
+        ca_items.append("❌ 수정일 없음")
+
+    ext_links = content_info.get("external_links_count", 0) if content_info else 0
+    if ext_links >= 5:
+        ca += 4
+        ca_items.append(f"✅ 외부 출처 인용: {ext_links}개")
+    elif ext_links >= 2:
+        ca += 2
+        ca_items.append(f"⚠️ 외부 출처 인용: {ext_links}개 (5개+ 권장)")
+    else:
+        ca_items.append(f"❌ 외부 출처 인용 부족: {ext_links}개")
+
+    # 1인칭 경험 표현 감지
+    exp_patterns = re.compile(r'(제가|저는|우리는|직접|테스트|경험|실제로|사용해|써본|I tested|we found|in my experience)', re.I)
+    exp_matches = exp_patterns.findall(body_text[:3000])
+    if exp_matches:
+        ca += 2
+        ca_items.append(f"✅ 1인칭 경험 표현: {len(exp_matches)}개")
+
+    scores["콘텐츠 권위"] = min(ca, 20)
+    details["콘텐츠 권위"] = ca_items
+
+    # ══ 4. 지식 그래프 연동 (Knowledge Graph) — 15점 ══
+    kg = 0
+    kg_items = []
+    all_types = schema_info.get("all_types", [])
+
+    if schema_info.get("has_schema"):
+        kg += 3
+    if "FAQPage" in all_types:
+        kg += 4
+        kg_items.append("✅ FAQPage 스키마 (AI 인용률 +41%)")
+    if any(t in all_types for t in ("Article", "BlogPosting", "NewsArticle")):
+        kg += 3
+        kg_items.append("✅ Article 스키마")
+    if "BreadcrumbList" in all_types:
+        kg += 2
+        kg_items.append("✅ BreadcrumbList")
+    if "Organization" in all_types or "LocalBusiness" in all_types:
+        kg += 2
+        kg_items.append("✅ Organization 스키마")
+    if "Person" in all_types:
+        kg += 1
+        kg_items.append("✅ Person 스키마")
+
+    if not all_types:
+        kg_items.append("❌ 구조화 데이터 없음")
+    else:
+        kg_items.insert(0, f"스키마 타입: {', '.join(all_types[:6])}")
+
+    scores["지식 그래프 연동"] = min(kg, 15)
+    details["지식 그래프 연동"] = kg_items
+
+    # ══ 5. 기술적 AI 접근성 (Technical Accessibility) — 10점 ══
+    ta = 0
+    ta_items = []
+
+    if not tech_info.get("is_noindex"):
+        ta += 3
+        ta_items.append("✅ 인덱싱 허용")
+    else:
+        ta_items.append("❌ noindex 설정 — AI 검색 노출 불가")
+
+    if tech_info.get("heading_hierarchy_ok"):
+        ta += 2
+        ta_items.append("✅ 헤딩 계층 구조 정상")
+    else:
+        ta_items.append("❌ 헤딩 계층 구조 오류")
+
+    if tech_info.get("has_viewport"):
+        ta += 1
+        ta_items.append("✅ 모바일 뷰포트")
+
+    if not tech_info.get("is_nofollow"):
+        ta += 2
+        ta_items.append("✅ 링크 추적 허용")
+
+    if tech_info.get("lang"):
+        ta += 2
+        ta_items.append(f"✅ 언어 명시: {tech_info['lang']}")
+    else:
+        ta_items.append("❌ html lang 속성 없음")
+
+    scores["기술적 접근성"] = min(ta, 10)
+    details["기술적 접근성"] = ta_items
+
+    # ══ 6. 차별화 (Differentiation) — 10점 ══
+    diff = 0
+    diff_items = []
+
+    wc = content_info.get("word_count", 0) if content_info else 0
+    if wc >= 2000:
+        diff += 3
+    elif wc >= 1000:
+        diff += 2
+    elif wc >= 500:
+        diff += 1
+    diff_items.append(f"콘텐츠 길이: {wc}단어")
+
+    imgs = soup.find_all("img") if soup else []
+    imgs_with_alt = [i for i in imgs if i.get("alt", "").strip()]
+    if len(imgs_with_alt) >= 3:
+        diff += 3
+    elif len(imgs_with_alt) >= 1:
+        diff += 1
+    diff_items.append(f"이미지(alt 포함): {len(imgs_with_alt)}개")
+
+    if tables:
+        diff += 2
+    if code_blocks:
+        diff += 2
+
+    scores["차별화"] = min(diff, 10)
+    details["차별화"] = diff_items
+
+    # ══ 종합 ══
+    total = sum(scores.values())
+    if total >= 85:
+        grade, grade_kr, color = "AI-Optimized", "AI 최적화 완료", "#3fb950"
+    elif total >= 70:
+        grade, grade_kr, color = "AI-Ready", "AI 준비 완료", "#58a6ff"
+    elif total >= 55:
+        grade, grade_kr, color = "Needs Work", "개선 필요", "#d29922"
+    else:
+        grade, grade_kr, color = "Not Optimized", "최적화 필요", "#f85149"
+
+    return {
+        "total_score": total,
+        "grade": grade,
+        "grade_kr": grade_kr,
+        "color": color,
+        "dimension_scores": scores,
+        "details": details,
+    }
+
+
+def analyze_content_optimization(url, keyword, session=None):
+    """
+    키워드 기반 콘텐츠 최적화 분석.
+    Surfer SEO 스타일의 콘텐츠 점수를 제공합니다.
+    """
+    if session is None:
+        session = build_session()
+
+    result = {
+        "url": url, "keyword": keyword, "score": 0,
+        "checks": [], "recommendations": [],
+    }
+
+    try:
+        page = analyze_page(url, session)
+        if page.get("Error") or not page.get("Status") or page["Status"] != 200:
+            result["checks"].append({"name": "페이지 접근", "pass": False, "detail": f"페이지에 접근할 수 없습니다: {page.get('Error', 'Unknown')}"})
+            return result
+
+        soup = BeautifulSoup(
+            session.get(url, timeout=REQUEST_TIMEOUT).content, "html.parser"
+        )
+        body = soup.find("body")
+        body_text = body.get_text(separator=" ", strip=True).lower() if body else ""
+        kw = keyword.lower().strip()
+        score = 0
+
+        # 1. Title에 키워드 포함 (15점)
+        title = page.get("Title", "").lower()
+        if kw in title:
+            score += 15
+            result["checks"].append({"name": "Title 키워드", "pass": True, "detail": f"Title에 '{keyword}' 포함"})
+        else:
+            result["checks"].append({"name": "Title 키워드", "pass": False, "detail": f"Title에 '{keyword}' 미포함"})
+            result["recommendations"].append(f"Title에 '{keyword}'를 자연스럽게 포함하세요")
+
+        # 2. H1에 키워드 포함 (10점)
+        h1 = page.get("H1", "").lower()
+        if kw in h1:
+            score += 10
+            result["checks"].append({"name": "H1 키워드", "pass": True, "detail": f"H1에 '{keyword}' 포함"})
+        else:
+            result["checks"].append({"name": "H1 키워드", "pass": False, "detail": f"H1에 '{keyword}' 미포함"})
+            result["recommendations"].append(f"H1에 '{keyword}'를 포함하세요")
+
+        # 3. Meta Description에 키워드 (10점)
+        desc = page.get("Meta Desc", "").lower()
+        if kw in desc:
+            score += 10
+            result["checks"].append({"name": "Description 키워드", "pass": True, "detail": "Meta Description에 키워드 포함"})
+        else:
+            result["checks"].append({"name": "Description 키워드", "pass": False, "detail": "Meta Description에 키워드 미포함"})
+            result["recommendations"].append(f"Meta Description에 '{keyword}'를 포함하세요")
+
+        # 4. H2/H3에 키워드 또는 관련어 (10점)
+        sub_headings = [h.get_text(strip=True).lower() for h in soup.find_all(["h2", "h3"])]
+        kw_in_headings = sum(1 for h in sub_headings if kw in h)
+        if kw_in_headings >= 2:
+            score += 10
+            result["checks"].append({"name": "서브헤딩 키워드", "pass": True, "detail": f"H2/H3 중 {kw_in_headings}개에 키워드 포함"})
+        elif kw_in_headings == 1:
+            score += 5
+            result["checks"].append({"name": "서브헤딩 키워드", "pass": True, "detail": f"H2/H3 중 {kw_in_headings}개에 키워드 포함 (2개+ 권장)"})
+        else:
+            result["checks"].append({"name": "서브헤딩 키워드", "pass": False, "detail": "H2/H3에 키워드 미포함"})
+            result["recommendations"].append("H2 또는 H3 소제목에 키워드 또는 관련어를 포함하세요")
+
+        # 5. 본문 키워드 밀도 (10점)
+        words = body_text.split()
+        word_count = len(words)
+        kw_count = body_text.count(kw)
+        density = (kw_count / max(word_count, 1)) * 100
+        if 0.5 <= density <= 3.0:
+            score += 10
+            result["checks"].append({"name": "키워드 밀도", "pass": True, "detail": f"키워드 밀도 {density:.1f}% (적정 범위)"})
+        elif density > 0:
+            score += 5
+            detail = f"키워드 밀도 {density:.1f}% ({'과다' if density > 3 else '부족'})"
+            result["checks"].append({"name": "키워드 밀도", "pass": False, "detail": detail})
+            if density > 3:
+                result["recommendations"].append("키워드 밀도가 너무 높습니다. 자연스러운 문장으로 조절하세요")
+            else:
+                result["recommendations"].append("키워드 사용 빈도를 조금 더 높이세요 (0.5~3% 권장)")
+        else:
+            result["checks"].append({"name": "키워드 밀도", "pass": False, "detail": "본문에 키워드 없음"})
+            result["recommendations"].append(f"본문에 '{keyword}'를 자연스럽게 포함하세요")
+
+        # 6. 콘텐츠 길이 (10점)
+        if word_count >= 2000:
+            score += 10
+            result["checks"].append({"name": "콘텐츠 길이", "pass": True, "detail": f"{word_count}단어 (충분)"})
+        elif word_count >= 1000:
+            score += 7
+            result["checks"].append({"name": "콘텐츠 길이", "pass": True, "detail": f"{word_count}단어 (양호)"})
+        elif word_count >= 500:
+            score += 4
+            result["checks"].append({"name": "콘텐츠 길이", "pass": False, "detail": f"{word_count}단어 (1000+ 권장)"})
+            result["recommendations"].append("콘텐츠를 1000단어 이상으로 보강하세요")
+        else:
+            result["checks"].append({"name": "콘텐츠 길이", "pass": False, "detail": f"{word_count}단어 (매우 짧음)"})
+            result["recommendations"].append("콘텐츠가 너무 짧습니다. 최소 1000단어 이상 작성하세요")
+
+        # 7. URL에 키워드 (5점)
+        url_path = urlparse(url).path.lower()
+        kw_slug = kw.replace(" ", "-")
+        if kw in url_path or kw_slug in url_path or any(w in url_path for w in kw.split() if len(w) > 2):
+            score += 5
+            result["checks"].append({"name": "URL 키워드", "pass": True, "detail": "URL 경로에 키워드 관련어 포함"})
+        else:
+            result["checks"].append({"name": "URL 키워드", "pass": False, "detail": "URL에 키워드 미포함"})
+
+        # 8. 이미지 최적화 (10점)
+        imgs = soup.find_all("img")
+        imgs_with_kw_alt = [i for i in imgs if kw in (i.get("alt", "").lower())]
+        if imgs and imgs_with_kw_alt:
+            score += 10
+            result["checks"].append({"name": "이미지 ALT 키워드", "pass": True, "detail": f"이미지 ALT에 키워드 포함 ({len(imgs_with_kw_alt)}개)"})
+        elif imgs:
+            score += 3
+            result["checks"].append({"name": "이미지 ALT 키워드", "pass": False, "detail": "이미지 있지만 ALT에 키워드 미포함"})
+            result["recommendations"].append("최소 1개 이미지의 ALT 텍스트에 키워드를 포함하세요")
+        else:
+            result["checks"].append({"name": "이미지", "pass": False, "detail": "이미지 없음"})
+            result["recommendations"].append("관련 이미지를 추가하세요")
+
+        # 9. 내부 링크 (5점)
+        internal_links = len(page.get("_internal_links", []))
+        if internal_links >= 5:
+            score += 5
+            result["checks"].append({"name": "내부 링크", "pass": True, "detail": f"내부 링크 {internal_links}개"})
+        elif internal_links >= 2:
+            score += 3
+            result["checks"].append({"name": "내부 링크", "pass": True, "detail": f"내부 링크 {internal_links}개 (5개+ 권장)"})
+        else:
+            result["checks"].append({"name": "내부 링크", "pass": False, "detail": f"내부 링크 {internal_links}개"})
+            result["recommendations"].append("관련 페이지로의 내부 링크를 더 추가하세요")
+
+        # 10. 외부 인용 링크 (5점)
+        ext_links = page.get("Ext Links", 0)
+        if ext_links >= 2:
+            score += 5
+            result["checks"].append({"name": "외부 인용", "pass": True, "detail": f"외부 링크 {ext_links}개"})
+        elif ext_links >= 1:
+            score += 3
+            result["checks"].append({"name": "외부 인용", "pass": True, "detail": f"외부 링크 {ext_links}개 (2개+ 권장)"})
+        else:
+            result["checks"].append({"name": "외부 인용", "pass": False, "detail": "외부 인용 링크 없음"})
+            result["recommendations"].append("신뢰할 수 있는 출처를 인용하는 외부 링크를 추가하세요")
+
+        # 11. Schema 마크업 (5점)
+        if page.get("Has Schema"):
+            score += 5
+            result["checks"].append({"name": "구조화 데이터", "pass": True, "detail": f"Schema: {page.get('Schema Types', '')}"})
+        else:
+            result["checks"].append({"name": "구조화 데이터", "pass": False, "detail": "구조화 데이터 없음"})
+            result["recommendations"].append("JSON-LD 구조화 데이터(Article, FAQPage 등)를 추가하세요")
+
+        # 12. 첫 100단어에 키워드 (5점)
+        first_100 = " ".join(words[:100]).lower()
+        if kw in first_100:
+            score += 5
+            result["checks"].append({"name": "도입부 키워드", "pass": True, "detail": "첫 100단어 내 키워드 포함"})
+        else:
+            result["checks"].append({"name": "도입부 키워드", "pass": False, "detail": "첫 100단어에 키워드 미포함"})
+            result["recommendations"].append("글의 도입부(첫 100단어)에 키워드를 자연스럽게 포함하세요")
+
+        result["score"] = min(score, 100)
+        result["word_count"] = word_count
+        result["keyword_count"] = kw_count
+        result["keyword_density"] = round(density, 2)
+        result["heading_count"] = len(sub_headings)
+        result["image_count"] = len(imgs)
+        result["internal_links"] = internal_links
+        result["external_links"] = ext_links
+
+    except Exception as e:
+        result["checks"].append({"name": "분석 오류", "pass": False, "detail": str(e)[:200]})
+
+    return result

@@ -880,10 +880,18 @@ def render_project_detail():
             return
 
     # Tabs
-    tab_insights, tab_crawl, tab_results, tab_history, tab_sc, tab_speed, tab_changes, tab_settings = st.tabs([
-        "💡 인사이트", "🚀 크롤링 실행", "📊 결과 분석", "📈 히스토리",
+    tab_insights, tab_aigeo, tab_crawl, tab_results, tab_history, tab_sc, tab_speed, tab_changes, tab_settings = st.tabs([
+        "💡 인사이트", "🤖 AI/GEO", "🚀 크롤링 실행", "📊 결과 분석", "📈 히스토리",
         "🔍 서치콘솔", "⚡ 사이트 속도", "📝 변경 히스토리", "⚙️ 설정"
     ])
+
+    # ── 인사이트 탭 ──
+    with tab_insights:
+        render_insights(project)
+
+    # ── AI/GEO 탭 ──
+    with tab_aigeo:
+        render_ai_geo(project)
 
     # ── 크롤링 실행 탭 ──
     with tab_crawl:
@@ -896,10 +904,6 @@ def render_project_detail():
     # ── 히스토리 탭 ──
     with tab_history:
         render_crawl_history(project)
-
-    # ── 인사이트 탭 ──
-    with tab_insights:
-        render_insights(project)
 
     # ── 서치콘솔 탭 ──
     with tab_sc:
@@ -1644,6 +1648,29 @@ def render_insights(project):
         st.info("인사이트를 생성하려면 먼저 크롤링을 실행하세요.")
         return
 
+    # ── 변경 감지 알림 배너 ──
+    try:
+        changes = db.get_page_changes(project["id"], crawl_run_id=latest["id"])
+        if changes:
+            change_types = defaultdict(int)
+            for c in changes:
+                change_types[FIELD_NAMES_KR.get(c.get("field", c.get("field_name", "")), c.get("field", c.get("field_name", "")))] += 1
+            change_summary = " · ".join([f"{k} {v}건" for k, v in sorted(change_types.items(), key=lambda x: -x[1])])
+            st.markdown(f"""
+            <div style="background:#f8514915;border:1px solid #f85149;border-radius:8px;padding:14px 20px;margin-bottom:16px;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <span style="font-size:1.4rem;">🔔</span>
+                    <div>
+                        <div style="color:#f85149;font-weight:700;font-size:1rem;">페이지 변경 감지 — {len(changes)}건</div>
+                        <div style="color:#e6edf3;font-size:.85rem;margin-top:2px;">{change_summary}</div>
+                        <div style="color:#8b949e;font-size:.78rem;margin-top:4px;">이전 크롤링 대비 변경된 항목입니다. '변경 히스토리' 탭에서 상세 확인하세요.</div>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+    except Exception:
+        pass
+
     st.divider()
 
     # ── 통합 인사이트 (Search Console + 크롤 데이터) ──
@@ -1809,6 +1836,118 @@ def render_insights(project):
                                     """, unsafe_allow_html=True)
                 except Exception:
                     pass
+
+                # ── 6. 키워드 잠식(Cannibalization) 탐지 ──
+                try:
+                    query_page_map = {}
+                    for r in sc_data:
+                        q = r.get("query", "")
+                        pg = r.get("page", "")
+                        if q and pg:
+                            query_page_map.setdefault(q, {})
+                            if pg not in query_page_map[q]:
+                                query_page_map[q][pg] = {"clicks": 0, "impressions": 0, "position_sum": 0, "count": 0}
+                            query_page_map[q][pg]["clicks"] += r.get("clicks", 0)
+                            query_page_map[q][pg]["impressions"] += r.get("impressions", 0)
+                            query_page_map[q][pg]["position_sum"] += r.get("position", 0)
+                            query_page_map[q][pg]["count"] += 1
+
+                    cannibalized = []
+                    for query, pages_map in query_page_map.items():
+                        if len(pages_map) >= 2:
+                            total_imp = sum(d["impressions"] for d in pages_map.values())
+                            if total_imp >= 20:
+                                sorted_pages = sorted(pages_map.items(), key=lambda x: -x[1]["clicks"])
+                                cannibalized.append({
+                                    "query": query,
+                                    "pages": [{
+                                        "url": pg,
+                                        "clicks": d["clicks"],
+                                        "impressions": d["impressions"],
+                                        "avg_pos": round(d["position_sum"] / d["count"], 1) if d["count"] else 0
+                                    } for pg, d in sorted_pages],
+                                })
+                    cannibalized.sort(key=lambda x: -sum(p["impressions"] for p in x["pages"]))
+
+                    if cannibalized:
+                        with st.expander(f"🔀 키워드 잠식 (Cannibalization) — {len(cannibalized)}개 쿼리", expanded=False):
+                            st.markdown("""
+                            <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;margin-bottom:12px;font-size:.85rem;color:#8b949e;">
+                                💡 동일 키워드에 여러 페이지가 경쟁하면 순위가 분산됩니다. 하나의 대표 페이지를 정하고 나머지에서 301 리다이렉트 또는 canonical 태그를 설정하세요.
+                            </div>
+                            """, unsafe_allow_html=True)
+                            for cann in cannibalized[:15]:
+                                st.markdown(f"**🔑 \"{cann['query']}\"** — {len(cann['pages'])}개 페이지 경쟁")
+                                for pg in cann["pages"]:
+                                    pos_color = "#3fb950" if pg["avg_pos"] <= 10 else "#d29922" if pg["avg_pos"] <= 20 else "#f85149"
+                                    st.markdown(f"""
+                                    <div style="background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:8px 12px;margin:4px 0;font-size:.82rem;">
+                                        <span style="color:{pos_color};font-weight:700;">#{pg['avg_pos']}</span>
+                                        <span style="color:#8b949e;margin:0 8px;">클릭 {pg['clicks']:,} · 노출 {pg['impressions']:,}</span>
+                                        <span style="color:#58a6ff;">{pg['url'][:80]}</span>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                st.markdown("")
+                except Exception:
+                    pass
+
+                # ── 7. Low-Hanging Fruit (쉬운 승리 키워드) ──
+                try:
+                    low_hanging = []
+                    query_agg = {}
+                    for r in sc_data:
+                        q = r.get("query", "")
+                        if q:
+                            if q not in query_agg:
+                                query_agg[q] = {"clicks": 0, "impressions": 0, "position_sum": 0, "count": 0, "page": ""}
+                            query_agg[q]["clicks"] += r.get("clicks", 0)
+                            query_agg[q]["impressions"] += r.get("impressions", 0)
+                            query_agg[q]["position_sum"] += r.get("position", 0)
+                            query_agg[q]["count"] += 1
+                            if not query_agg[q]["page"]:
+                                query_agg[q]["page"] = r.get("page", "")
+
+                    for q, d in query_agg.items():
+                        avg_pos = d["position_sum"] / d["count"] if d["count"] else 0
+                        ctr = (d["clicks"] / d["impressions"] * 100) if d["impressions"] > 0 else 0
+                        # 순위 11~20위 + 노출 50회 이상
+                        if 11 <= avg_pos <= 25 and d["impressions"] >= 50:
+                            low_hanging.append({
+                                "query": q, "avg_pos": round(avg_pos, 1),
+                                "clicks": d["clicks"], "impressions": d["impressions"],
+                                "ctr": round(ctr, 2), "page": d["page"],
+                            })
+                        # 또는 노출 높은데 CTR 낮은 (순위 1~10위)
+                        elif avg_pos <= 10 and d["impressions"] >= 100 and ctr < 3:
+                            low_hanging.append({
+                                "query": q, "avg_pos": round(avg_pos, 1),
+                                "clicks": d["clicks"], "impressions": d["impressions"],
+                                "ctr": round(ctr, 2), "page": d["page"],
+                                "type": "low_ctr",
+                            })
+
+                    low_hanging.sort(key=lambda x: -x["impressions"])
+
+                    if low_hanging:
+                        with st.expander(f"🎯 Low-Hanging Fruit — {len(low_hanging)}개 기회 키워드", expanded=False):
+                            st.markdown("""
+                            <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;margin-bottom:12px;font-size:.85rem;color:#8b949e;">
+                                💡 조금만 최적화하면 순위와 클릭을 크게 올릴 수 있는 키워드입니다. Title/Description 개선, 콘텐츠 보강으로 빠른 성과를 얻으세요.
+                            </div>
+                            """, unsafe_allow_html=True)
+                            for lh in low_hanging[:20]:
+                                is_low_ctr = lh.get("type") == "low_ctr"
+                                badge = '<span style="background:#d2992222;color:#d29922;padding:2px 6px;border-radius:4px;font-size:.72rem;">CTR 개선</span>' if is_low_ctr else '<span style="background:#58a6ff22;color:#58a6ff;padding:2px 6px;border-radius:4px;font-size:.72rem;">순위 상승 가능</span>'
+                                st.markdown(f"""
+                                <div class="insight-card new-issue">
+                                    <div class="insight-title">{badge} {lh['query']}</div>
+                                    <div class="insight-detail">순위 #{lh['avg_pos']} · 노출 {lh['impressions']:,} · 클릭 {lh['clicks']:,} · CTR {lh['ctr']}%</div>
+                                    <div class="insight-url">{lh['page'][:80] if lh['page'] else ''}</div>
+                                </div>
+                                """, unsafe_allow_html=True)
+                except Exception:
+                    pass
+
             else:
                 st.info("Search Console 데이터를 동기화한 후 통합 인사이트를 확인하세요.")
         except Exception as e:
@@ -2077,6 +2216,428 @@ def render_insights(project):
                 st.markdown("""
                 <p style="font-size:0.82rem;color:#d29922;margin-top:8px;">💡 '사이트 속도' 탭에서 PageSpeed 측정을 실행하세요.</p>
                 """, unsafe_allow_html=True)
+
+
+# ── AI/GEO — AI 검색 최적화 ─────────────────────────────────────────────────
+def render_ai_geo(project):
+    st.markdown("### 🤖 AI 검색 최적화 (AI/GEO)")
+    st.caption("AI 검색엔진(ChatGPT, Perplexity, Gemini, Claude)에서 인용되고 노출될 준비가 되어 있는지 진단합니다.")
+
+    project_url = project.get("url", "").rstrip("/")
+    project_id = project["id"]
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # 섹션 1: AI 봇 접근성 매트릭스
+    # ═══════════════════════════════════════════════════════════════════════
+    st.markdown("---")
+    st.markdown("#### 🛡️ AI 봇 접근성 매트릭스")
+    st.caption("robots.txt에서 각 AI 봇의 접근 허용/차단 상태를 분석합니다.")
+
+    if st.button("🔍 AI 봇 접근성 분석", key="ai_bot_scan"):
+        with st.spinner("robots.txt 분석 중..."):
+            bot_result = crawler.analyze_ai_bot_access(project_url)
+
+        if bot_result.get("robots_exists"):
+            bots = bot_result["bots"]
+
+            # 요약
+            allowed = sum(1 for b in bots.values() if b["status"] == "허용")
+            blocked = sum(1 for b in bots.values() if b["status"] == "차단")
+            sc1, sc2, sc3 = st.columns(3)
+            sc1.metric("총 AI 봇", f"{len(bots)}개")
+            sc2.metric("허용", f"{allowed}개", delta=None)
+            sc3.metric("차단", f"{blocked}개", delta=None)
+
+            # 티어별 분류
+            for tier, tier_label, tier_desc in [
+                ("학습", "🎓 학습용 (Training)", "AI 모델 학습 데이터 수집 — 차단해도 검색 노출에 영향 없음"),
+                ("검색", "🔍 검색용 (Search/Citation)", "AI 검색 결과에 노출 — 차단하면 AI 검색에서 제외됨"),
+                ("사용자", "👤 사용자용 (User-Initiated)", "사용자가 대화 중 링크 조회 — 차단해도 큰 영향 없음"),
+            ]:
+                tier_bots = {k: v for k, v in bots.items() if v["tier"] == tier}
+                if not tier_bots:
+                    continue
+
+                with st.expander(f"{tier_label} ({len(tier_bots)}개)", expanded=True):
+                    st.caption(tier_desc)
+                    for bot_name, info in tier_bots.items():
+                        status = info["status"]
+                        if status == "차단":
+                            icon = "🔴"
+                            color = "#f85149"
+                        elif status == "허용":
+                            icon = "🟢"
+                            color = "#3fb950"
+                        else:
+                            icon = "⚪"
+                            color = "#8b949e"
+
+                        st.markdown(f"""
+                        <div style="display:flex;align-items:center;gap:12px;padding:8px 12px;background:#0d1117;border:1px solid #21262d;border-radius:6px;margin-bottom:4px;">
+                            <span style="font-size:1.1rem;">{icon}</span>
+                            <div style="flex:1;">
+                                <span style="color:#e6edf3;font-weight:600;">{bot_name}</span>
+                                <span style="color:#8b949e;font-size:.82rem;margin-left:8px;">{info['company']}</span>
+                            </div>
+                            <span style="color:{color};font-weight:600;font-size:.85rem;">{status}</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+            # 권장사항
+            search_blocked = [k for k, v in bots.items() if v["tier"] == "검색" and v["status"] == "차단"]
+            if search_blocked:
+                st.warning(f"⚠️ 검색용 AI 봇 {len(search_blocked)}개가 차단되어 있습니다: {', '.join(search_blocked)}. AI 검색(ChatGPT, Perplexity 등)에서 노출되지 않을 수 있습니다.")
+            else:
+                st.success("✅ 모든 검색용 AI 봇이 접근을 허용하고 있습니다. AI 검색 노출에 문제 없습니다.")
+        else:
+            st.info("robots.txt 파일이 없거나 접근할 수 없습니다. 기본적으로 모든 AI 봇의 접근이 허용됩니다.")
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # 섹션 2: llms.txt 체크
+    # ═══════════════════════════════════════════════════════════════════════
+    st.markdown("---")
+    st.markdown("#### 📄 llms.txt 체크")
+    st.caption("llms.txt는 AI 모델이 사이트 구조를 이해하도록 돕는 새로운 표준입니다.")
+
+    if st.button("🔍 llms.txt 확인", key="llms_txt_check"):
+        with st.spinner("llms.txt 확인 중..."):
+            llms_result = crawler.check_llms_txt(project_url)
+
+        if llms_result["exists"]:
+            st.success(f"✅ llms.txt 발견! 점수: {llms_result['score']}/100")
+
+            checks = [
+                ("H1 사이트명", llms_result["has_h1"]),
+                ("Blockquote 설명", llms_result["has_blockquote"]),
+                ("섹션 (## 카테고리)", llms_result["has_sections"]),
+                ("콘텐츠 링크", llms_result["has_links"]),
+            ]
+            for name, passed in checks:
+                icon = "✅" if passed else "❌"
+                st.markdown(f"- {icon} {name}")
+
+            if llms_result["issues"]:
+                st.markdown("**개선 사항:**")
+                for issue in llms_result["issues"]:
+                    st.markdown(f"- ⚠️ {issue}")
+
+            with st.expander("llms.txt 내용 보기"):
+                st.code(llms_result["content"][:3000], language="markdown")
+        else:
+            st.warning("❌ llms.txt 파일이 없습니다.")
+            st.markdown("""
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;margin-top:8px;">
+                <p style="color:#e6edf3;font-weight:600;margin-bottom:8px;">llms.txt 만들기 가이드</p>
+                <p style="color:#8b949e;font-size:.85rem;margin-bottom:12px;">사이트 루트에 <code>/llms.txt</code> 파일을 만들면 AI가 사이트를 더 잘 이해합니다.</p>
+                <pre style="background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:12px;font-size:.82rem;color:#e6edf3;overflow-x:auto;"># 사이트 이름
+
+> 사이트에 대한 간단한 설명
+
+## 주요 콘텐츠
+- [페이지 제목](URL): 설명
+- [페이지 제목](URL): 설명
+
+## 카테고리
+- [카테고리명](URL): 설명</pre>
+                <p style="color:#d29922;font-size:.82rem;margin-top:8px;">💡 <a href="https://llmstxt.org/" target="_blank" style="color:#58a6ff;">llms.txt 공식 사양</a> 참고</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # 섹션 3: E-E-A-T 종합 스코어 + AI 준비도 (크롤 데이터 기반)
+    # ═══════════════════════════════════════════════════════════════════════
+    st.markdown("---")
+    st.markdown("#### 📊 페이지별 E-E-A-T 점수 & AI 준비도")
+
+    latest = db.get_latest_crawl(project_id)
+    if not latest:
+        st.info("크롤링 데이터가 없습니다. '크롤링 실행' 탭에서 먼저 크롤링을 실행하세요.")
+    else:
+        try:
+            pages_raw = latest.get("pages_json", "[]")
+            pages = json.loads(pages_raw) if pages_raw else []
+        except (json.JSONDecodeError, TypeError):
+            pages = []
+
+        if not pages:
+            st.info("크롤링된 페이지 데이터가 없습니다.")
+        else:
+            # 사이트 전체 E-E-A-T + AI 준비도 평균 계산
+            eeat_scores = []
+            ai_scores = []
+
+            for p in pages:
+                if p.get("Status") != 200:
+                    continue
+                eeat_info = p.get("_eeat", {})
+                schema_info = p.get("_schema", {})
+                security_info = p.get("_security", {})
+                content_info = p.get("_content", {})
+                tech_info = p.get("_tech", {})
+
+                eeat_result = crawler.calculate_eeat_score(eeat_info, schema_info, security_info, content_info)
+                eeat_scores.append({"url": p["URL"], **eeat_result})
+
+                # AI 준비도는 soup가 필요하므로 저장된 데이터에서 추정
+                ai_est = _estimate_ai_readiness(p)
+                ai_scores.append({"url": p["URL"], **ai_est})
+
+            if eeat_scores:
+                avg_eeat = round(sum(e["score"] for e in eeat_scores) / len(eeat_scores))
+                avg_ai = round(sum(a["score"] for a in ai_scores) / len(ai_scores))
+
+                # 종합 점수 카드
+                sc1, sc2 = st.columns(2)
+                with sc1:
+                    eeat_color = "#3fb950" if avg_eeat >= 60 else "#d29922" if avg_eeat >= 40 else "#f85149"
+                    st.markdown(f"""
+                    <div style="text-align:center;background:#161b22;border:1px solid #30363d;border-radius:12px;padding:24px;">
+                        <div style="font-size:.85rem;color:#8b949e;margin-bottom:8px;">사이트 E-E-A-T 점수</div>
+                        <div class="score-circle {'score-good' if avg_eeat >= 60 else 'score-medium' if avg_eeat >= 40 else 'score-bad'}" style="width:100px;height:100px;font-size:1.8rem;margin:0 auto;">{avg_eeat}</div>
+                        <div style="color:{eeat_color};font-weight:600;margin-top:8px;">{'우수' if avg_eeat >= 60 else '보통' if avg_eeat >= 40 else '개선 필요'}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with sc2:
+                    ai_color = "#3fb950" if avg_ai >= 70 else "#d29922" if avg_ai >= 50 else "#f85149"
+                    st.markdown(f"""
+                    <div style="text-align:center;background:#161b22;border:1px solid #30363d;border-radius:12px;padding:24px;">
+                        <div style="font-size:.85rem;color:#8b949e;margin-bottom:8px;">AI 검색 준비도</div>
+                        <div class="score-circle {'score-good' if avg_ai >= 70 else 'score-medium' if avg_ai >= 50 else 'score-bad'}" style="width:100px;height:100px;font-size:1.8rem;margin:0 auto;">{avg_ai}</div>
+                        <div style="color:{ai_color};font-weight:600;margin-top:8px;">{'AI-Ready' if avg_ai >= 70 else '개선 필요' if avg_ai >= 50 else '최적화 필요'}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                # 페이지별 상세 테이블
+                st.markdown("")
+                with st.expander(f"📋 페이지별 E-E-A-T 상세 ({len(eeat_scores)}개 페이지)", expanded=False):
+                    # Sort by score ascending (worst first)
+                    eeat_sorted = sorted(eeat_scores, key=lambda x: x["score"])
+                    for es in eeat_sorted[:30]:
+                        grade_color = es.get("color", "#8b949e")
+                        url_short = urlparse(es["url"]).path or "/"
+                        st.markdown(f"""
+                        <div style="display:flex;align-items:center;gap:12px;padding:8px 12px;background:#0d1117;border:1px solid #21262d;border-radius:6px;margin-bottom:4px;">
+                            <span style="color:{grade_color};font-weight:800;font-size:1.1rem;min-width:30px;">{es['grade']}</span>
+                            <span style="color:{grade_color};font-weight:700;min-width:40px;">{es['score']}</span>
+                            <span style="color:#58a6ff;font-size:.85rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{es['url']}">{url_short}</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    # 가장 점수 낮은 페이지의 상세 진단
+                    if eeat_sorted:
+                        worst = eeat_sorted[0]
+                        st.markdown(f"**가장 개선이 필요한 페이지:** `{urlparse(worst['url']).path}`")
+                        for dim_name, dim_data in worst.get("details", {}).items():
+                            st.markdown(f"**{dim_name}** ({dim_data['score']}/25)")
+                            for item in dim_data.get("items", []):
+                                st.markdown(f"  - {item}")
+
+                with st.expander(f"🤖 페이지별 AI 준비도 상세 ({len(ai_scores)}개 페이지)", expanded=False):
+                    ai_sorted = sorted(ai_scores, key=lambda x: x["score"])
+                    for ais in ai_sorted[:30]:
+                        url_short = urlparse(ais["url"]).path or "/"
+                        sc_val = ais["score"]
+                        sc_color = "#3fb950" if sc_val >= 70 else "#d29922" if sc_val >= 50 else "#f85149"
+                        st.markdown(f"""
+                        <div style="display:flex;align-items:center;gap:12px;padding:8px 12px;background:#0d1117;border:1px solid #21262d;border-radius:6px;margin-bottom:4px;">
+                            <span style="color:{sc_color};font-weight:700;min-width:40px;">{sc_val}</span>
+                            <span style="color:#58a6ff;font-size:.85rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{ais['url']}">{url_short}</span>
+                            <span style="color:#8b949e;font-size:.78rem;">{ais.get('grade_kr', '')}</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # 섹션 4: 콘텐츠 최적화 분석 (키워드 기반)
+    # ═══════════════════════════════════════════════════════════════════════
+    st.markdown("---")
+    st.markdown("#### 📝 콘텐츠 최적화 분석")
+    st.caption("특정 키워드에 대한 페이지의 최적화 수준을 분석합니다.")
+
+    with st.form("content_opt_form", clear_on_submit=False):
+        co_cols = st.columns([3, 2])
+        with co_cols[0]:
+            co_url = st.text_input("분석할 페이지 URL", placeholder=f"{project_url}/blog/seo-guide", key="co_url")
+        with co_cols[1]:
+            co_keyword = st.text_input("타겟 키워드", placeholder="SEO 최적화 방법", key="co_keyword")
+        co_submit = st.form_submit_button("🔍 콘텐츠 분석 시작", use_container_width=True, type="primary")
+
+    if co_submit and co_url and co_keyword:
+        with st.spinner(f"'{co_keyword}' 키워드로 페이지 분석 중..."):
+            co_result = crawler.analyze_content_optimization(co_url.strip(), co_keyword.strip())
+
+        if co_result:
+            # 점수 표시
+            score = co_result.get("score", 0)
+            if score >= 80:
+                score_color, score_label = "#3fb950", "우수"
+            elif score >= 60:
+                score_color, score_label = "#58a6ff", "양호"
+            elif score >= 40:
+                score_color, score_label = "#d29922", "보통"
+            else:
+                score_color, score_label = "#f85149", "개선 필요"
+
+            st.markdown(f"""
+            <div style="text-align:center;margin:16px 0;">
+                <div class="score-circle {'score-good' if score >= 60 else 'score-medium' if score >= 40 else 'score-bad'}" style="width:120px;height:120px;font-size:2rem;margin:0 auto;">{score}</div>
+                <p style="color:{score_color};font-weight:600;font-size:1.1rem;margin-top:8px;">콘텐츠 최적화 점수: {score_label}</p>
+                <p style="color:#8b949e;font-size:.82rem;">키워드: "{co_keyword}" · {co_result.get('word_count', 0)}단어 · 밀도 {co_result.get('keyword_density', 0)}%</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # 체크 결과
+            checks = co_result.get("checks", [])
+            if checks:
+                st.markdown("**진단 항목**")
+                for check in checks:
+                    icon = "✅" if check["pass"] else "❌"
+                    bg = "#3fb95015" if check["pass"] else "#f8514915"
+                    border = "#3fb95040" if check["pass"] else "#f8514940"
+                    st.markdown(f"""
+                    <div style="background:{bg};border:1px solid {border};border-radius:6px;padding:8px 14px;margin-bottom:4px;display:flex;align-items:center;gap:10px;">
+                        <span style="font-size:1rem;">{icon}</span>
+                        <div>
+                            <span style="color:#e6edf3;font-weight:600;font-size:.9rem;">{check['name']}</span>
+                            <span style="color:#8b949e;font-size:.82rem;margin-left:8px;">{check['detail']}</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+            # 개선 권장사항
+            recs = co_result.get("recommendations", [])
+            if recs:
+                st.markdown("**개선 권장사항**")
+                for i, rec in enumerate(recs, 1):
+                    st.markdown(f"""
+                    <div style="background:#161b22;border:1px solid #30363d;border-left:3px solid #d29922;border-radius:6px;padding:10px 14px;margin-bottom:4px;">
+                        <span style="color:#d29922;font-weight:700;">{i}.</span>
+                        <span style="color:#e6edf3;font-size:.9rem;margin-left:6px;">{rec}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+            # 메트릭 요약
+            met_cols = st.columns(5)
+            met_cols[0].metric("단어 수", f"{co_result.get('word_count', 0):,}")
+            met_cols[1].metric("키워드 빈도", f"{co_result.get('keyword_count', 0)}회")
+            met_cols[2].metric("헤딩 수", f"{co_result.get('heading_count', 0)}개")
+            met_cols[3].metric("이미지", f"{co_result.get('image_count', 0)}개")
+            met_cols[4].metric("내부 링크", f"{co_result.get('internal_links', 0)}개")
+
+
+def _estimate_ai_readiness(page_data):
+    """
+    크롤 데이터에서 AI 준비도를 추정합니다.
+    (실제 soup 없이 저장된 데이터만으로 계산)
+    """
+    score = 0
+    details = {}
+
+    eeat = page_data.get("_eeat", {})
+    schema = page_data.get("_schema", {})
+    tech = page_data.get("_tech", {})
+    content = page_data.get("_content", {})
+    perf = page_data.get("_perf", {})
+
+    # 인용 준비도 (25점) — 콘텐츠 구조 기반 추정
+    cr = 0
+    wc = page_data.get("Words", 0)
+    if wc >= 1500:
+        cr += 10
+    elif wc >= 800:
+        cr += 6
+    elif wc >= 300:
+        cr += 3
+    # 이미지 (구조화된 콘텐츠 표시)
+    if page_data.get("Images", 0) >= 3:
+        cr += 5
+    elif page_data.get("Images", 0) >= 1:
+        cr += 2
+    # 외부 링크 (인용)
+    if page_data.get("Ext Links", 0) >= 3:
+        cr += 5
+    elif page_data.get("Ext Links", 0) >= 1:
+        cr += 3
+    # Text/HTML 비율
+    thr = page_data.get("Text/HTML %", 0)
+    if thr >= 30:
+        cr += 5
+    elif thr >= 15:
+        cr += 3
+    score += min(cr, 25)
+
+    # 답변 적합성 (20점) — 헤딩 구조 기반
+    aa = 0
+    total_headings = sum(page_data.get(f"H{i}s", 0) for i in range(2, 4))
+    if total_headings >= 5:
+        aa += 8
+    elif total_headings >= 3:
+        aa += 5
+    elif total_headings >= 1:
+        aa += 3
+    if tech.get("heading_hierarchy_ok"):
+        aa += 6
+    if wc >= 500:
+        aa += 6
+    score += min(aa, 20)
+
+    # 콘텐츠 권위 (20점)
+    ca = 0
+    if eeat.get("has_author"):
+        ca += 7
+    if eeat.get("has_published_date"):
+        ca += 5
+    if eeat.get("has_modified_date"):
+        ca += 4
+    if page_data.get("Ext Links", 0) >= 2:
+        ca += 4
+    score += min(ca, 20)
+
+    # 지식 그래프 연동 (15점)
+    kg = 0
+    all_types = schema.get("all_types", [])
+    if schema.get("has_schema"):
+        kg += 4
+    if "FAQPage" in all_types:
+        kg += 5
+    if any(t in all_types for t in ("Article", "BlogPosting")):
+        kg += 3
+    if "BreadcrumbList" in all_types:
+        kg += 3
+    score += min(kg, 15)
+
+    # 기술적 접근성 (10점)
+    ta = 0
+    if not tech.get("is_noindex"):
+        ta += 3
+    if tech.get("heading_hierarchy_ok"):
+        ta += 3
+    if tech.get("has_viewport"):
+        ta += 2
+    if tech.get("lang"):
+        ta += 2
+    score += min(ta, 10)
+
+    # 차별화 (10점)
+    di = 0
+    if wc >= 2000:
+        di += 4
+    elif wc >= 1000:
+        di += 2
+    if page_data.get("Images", 0) >= 3:
+        di += 3
+    if page_data.get("Has Schema"):
+        di += 3
+    score += min(di, 10)
+
+    total = min(score, 100)
+    if total >= 70:
+        grade_kr = "AI-Ready"
+    elif total >= 50:
+        grade_kr = "개선 필요"
+    else:
+        grade_kr = "최적화 필요"
+
+    return {"score": total, "grade_kr": grade_kr}
 
 
 # ── 프로젝트 설정 ──────────────────────────────────────────────────────────
