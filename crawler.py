@@ -930,12 +930,54 @@ def quick_scan(url: str) -> dict:
 
     try:
         start = time.time()
-        r = session.get(url, timeout=REQUEST_TIMEOUT)
+        r = session.get(url, timeout=REQUEST_TIMEOUT, allow_redirects=True)
         result["load_time"] = round(time.time() - start, 2)
 
+        # 403/406 등 차단 시 Referer 헤더 추가 후 재시도
+        if r.status_code in (403, 406, 429):
+            session.headers.update({
+                "Referer": url,
+                "DNT": "1",
+            })
+            time.sleep(1)
+            start2 = time.time()
+            r = session.get(url, timeout=REQUEST_TIMEOUT, allow_redirects=True)
+            result["load_time"] = round(time.time() - start2, 2)
+
+        # 여전히 차단되면 다른 User-Agent로 재시도
+        if r.status_code in (403, 406, 429):
+            session.headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            time.sleep(1)
+            start3 = time.time()
+            r = session.get(url, timeout=REQUEST_TIMEOUT, allow_redirects=True)
+            result["load_time"] = round(time.time() - start3, 2)
+
         if r.status_code != 200:
-            result["error"] = f"HTTP {r.status_code}"
-            return result
+            # 403이라도 WAF 페이지에서 일부 정보 추출 시도
+            if r.status_code == 403:
+                result["error"] = ""  # 에러 표시 안 함
+                result["waf_blocked"] = True
+                soup_403 = BeautifulSoup(r.content, "html.parser")
+                title_tag = soup_403.find("title")
+                if title_tag and title_tag.string:
+                    result["title"] = title_tag.string.strip()
+                    result["title_len"] = len(result["title"])
+                # HTTPS, 기본 정보는 수집 가능
+                result["score"] = 0
+                result["issues_preview"] = [{
+                    "severity": "HIGH",
+                    "message": "WAF(웹 방화벽)에 의해 크롤러 접근이 차단되었습니다"
+                }, {
+                    "severity": "MEDIUM",
+                    "message": "robots.txt 또는 WAF 설정으로 인해 자동 수집이 제한됩니다"
+                }, {
+                    "severity": "MEDIUM",
+                    "message": "프로젝트를 만들어 전체 크롤링을 시도하면 더 많은 페이지를 수집할 수 있습니다"
+                }]
+                return result
+            else:
+                result["error"] = f"HTTP {r.status_code}"
+                return result
 
         soup = BeautifulSoup(r.content, "html.parser")
 

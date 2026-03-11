@@ -316,6 +316,19 @@ def render_landing():
             result = crawler.quick_scan(scan_url)
 
         if result and not result.get("error", "").strip():
+            # WAF 차단 안내
+            if result.get("waf_blocked"):
+                st.markdown(f"""
+                <div style="background:#d2992211;border:1px solid #d2992244;border-radius:10px;padding:20px;margin:20px 0;text-align:center;">
+                    <div style="font-size:2.5rem;margin-bottom:10px;">🛡️</div>
+                    <h3 style="color:#d29922;margin-bottom:8px;">WAF(웹 방화벽)에 의해 접근이 제한되었습니다</h3>
+                    <p style="color:#8b949e;font-size:.9rem;">
+                        <strong>{scan_url}</strong> 사이트는 봇 접근을 차단하고 있습니다.<br>
+                        이런 사이트도 <strong>프로젝트를 만들어 전체 크롤링</strong>을 시도하면 일부 페이지를 수집할 수 있습니다.
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+
             score = result.get("score", 0)
             score_class = "score-good" if score >= 80 else ("score-medium" if score >= 50 else "score-bad")
 
