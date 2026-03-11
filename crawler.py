@@ -27,16 +27,8 @@ try:
 except ImportError:
     pass
 
-# Streamlit Cloud 등 서버 환경에서 Playwright 브라우저 자동 설치
-if _PLAYWRIGHT_AVAILABLE:
-    import subprocess
-    try:
-        subprocess.run(
-            ["playwright", "install", "chromium"],
-            capture_output=True, timeout=120
-        )
-    except Exception:
-        pass
+# Playwright 브라우저 설치는 로컬 환경에서만 수동으로 실행
+# Streamlit Cloud에서는 requests + BeautifulSoup fallback 사용
 
 
 _WAF_SIGNATURES = [
