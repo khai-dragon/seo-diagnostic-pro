@@ -438,7 +438,7 @@ def _render_google_auth_page(title, subtitle):
         st.markdown("""
         <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:40px 30px;text-align:center;">
             <p style="color:#8b949e;margin-bottom:20px;font-size:.9rem;">
-                Google 계정으로 간편하게 시작하세요
+                이메일로 간편하게 시작하세요
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -469,50 +469,66 @@ def _render_google_auth_page(title, subtitle):
             </a>
             """, unsafe_allow_html=True)
         else:
-            # 데모 모드: Google 없이 이메일 입력으로 간편 가입
-            st.markdown("""
-            <div style="background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:12px;margin:12px 0;">
-                <p style="color:#d29922;font-size:.82rem;margin:0;">
-                    ⚠️ Google OAuth를 사용하려면 <code>.streamlit/secrets.toml</code>에 Google Cloud 인증 정보를 설정하세요.
-                    지금은 데모 모드로 Google 이메일을 직접 입력하여 가입할 수 있습니다.
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
+            # 이메일 입력 및 인증
+            with st.form("auth_form"):
+                auth_email = st.text_input("이메일", placeholder="you@gmail.com 또는 you@company.com")
 
-            with st.form("google_demo_form"):
-                demo_email = st.text_input("Google 이메일", placeholder="you@gmail.com 또는 you@company.com")
-                demo_name = st.text_input("이름", placeholder="홍길동")
+                # 비밀번호 필드 (법인 이메일 가입/로그인 시 사용)
+                auth_password = st.text_input("비밀번호 (법인 이메일만 해당)", type="password", placeholder="법인 이메일은 비밀번호가 필요합니다")
+
                 submitted = st.form_submit_button(
-                    "Google 계정으로 계속하기",
+                    "계속하기",
                     use_container_width=True,
                     type="primary",
                 )
                 if submitted:
-                    if not demo_email or "@" not in demo_email:
+                    if not auth_email or "@" not in auth_email:
                         st.error("올바른 이메일 주소를 입력해주세요.")
-                    elif not demo_name:
-                        st.error("이름을 입력해주세요.")
                     else:
-                        user = db.create_user_google(demo_email, demo_name)
-                        st.session_state.user = user
-                        is_corp = db.is_corporate_email(demo_email)
-                        max_proj = 5 if is_corp else 1
-                        if is_corp:
-                            st.success(f"🏢 법인 이메일로 가입! 프로젝트 {max_proj}개까지 생성 가능합니다.")
-                        else:
-                            st.info(f"프로젝트 {max_proj}개까지 생성 가능합니다. 법인 이메일로 가입하면 5개까지 가능해요!")
-                        time.sleep(1.5)
-                        navigate("dashboard")
+                        is_corp = db.is_corporate_email(auth_email)
+                        auto_name = auth_email.split("@")[0]
 
-        # 법인 이메일 안내
+                        if is_corp:
+                            # 법인 이메일: 비밀번호 필수
+                            if not auth_password:
+                                st.error("법인 이메일은 비밀번호를 입력해주세요.")
+                            else:
+                                # 기존 사용자인지 확인
+                                existing_user = db.verify_user(auth_email, auth_password)
+                                if existing_user:
+                                    # 로그인 성공
+                                    st.session_state.user = existing_user
+                                    st.success(f"🏢 로그인 성공! 프로젝트 {existing_user.get('max_projects', 5)}개 사용 가능")
+                                    time.sleep(1)
+                                    navigate("dashboard")
+                                else:
+                                    # 새 사용자 가입 시도
+                                    try:
+                                        user_id = db.create_user(auth_email, auth_password, auto_name)
+                                        user = db.get_user(user_id)
+                                        st.session_state.user = user
+                                        st.success(f"🏢 법인 이메일로 가입 완료! 프로젝트 5개까지 생성 가능합니다.")
+                                        time.sleep(1.5)
+                                        navigate("dashboard")
+                                    except ValueError:
+                                        st.error("이미 등록된 이메일입니다. 비밀번호를 확인해주세요.")
+                        else:
+                            # 개인 이메일 (Gmail 등): 비밀번호 불필요
+                            user = db.create_user_google(auth_email, auto_name)
+                            st.session_state.user = user
+                            st.info(f"프로젝트 1개 사용 가능합니다. 법인 이메일로 가입하면 5개까지 가능해요!")
+                            time.sleep(1.5)
+                            navigate("dashboard")
+
+        # 안내 메시지
         st.markdown("""
         <div style="background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:16px;margin:20px 0;text-align:center;">
             <p style="color:#58a6ff;font-size:.9rem;font-weight:600;margin-bottom:8px;">
                 🏢 법인 이메일로 가입하면 프로젝트 5개!
             </p>
             <p style="color:#8b949e;font-size:.82rem;margin:0;">
-                회사 이메일(예: you@company.com)로 가입하면 프로젝트를 5개까지 만들 수 있습니다.<br>
-                개인 이메일(Gmail, Naver 등)은 1개 프로젝트를 제공합니다.
+                회사 이메일(예: you@company.com)로 가입 시 비밀번호를 설정하고 프로젝트 5개를 사용하세요.<br>
+                개인 이메일(Gmail, Naver 등)은 비밀번호 없이 바로 시작하며 1개 프로젝트를 제공합니다.
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -528,14 +544,14 @@ def _render_google_auth_page(title, subtitle):
 # VIEW: 로그인
 # ══════════════════════════════════════════════════════════════════════════════
 def render_login():
-    _render_google_auth_page("🔍 로그인", "Google 계정으로 로그인하세요")
+    _render_google_auth_page("🔍 로그인", "이메일로 로그인하세요")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # VIEW: 회원가입
 # ══════════════════════════════════════════════════════════════════════════════
 def render_signup():
-    _render_google_auth_page("🚀 무료 가입", "Google 계정으로 30초 만에 시작하세요")
+    _render_google_auth_page("🚀 무료 가입", "이메일로 30초 만에 시작하세요")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1046,6 +1062,27 @@ def render_crawl_execution(project):
                 st.warning(f"페이지 스냅샷 저장 중 오류: {e}")
 
             st.success(f"크롤링 완료! {len(pages)}개 페이지 분석, {len(issues)}개 이슈 발견")
+
+            # robots.txt 경고 표시
+            robots_info = result.get("robots_info", {})
+            if robots_info and robots_info.get("warnings"):
+                for warn in robots_info["warnings"]:
+                    st.warning(f"🤖 {warn}")
+                if robots_info.get("is_fully_blocked"):
+                    st.markdown("""
+                    <div style="background:#f8514911;border:1px solid #f8514944;border-radius:8px;padding:12px;margin:8px 0;">
+                        <p style="color:#f85149;font-weight:600;margin-bottom:4px;">⚠️ 강제 크롤링 안내</p>
+                        <p style="color:#8b949e;font-size:.85rem;margin:0;">
+                            이 사이트는 robots.txt에서 크롤러 접근을 차단하고 있습니다.
+                            SEO 진단 목적으로 강제 수집하였으며, 이는 검색엔진이 실제로 색인하는 내용과 다를 수 있습니다.
+                            Google Search Console에서 실제 색인 상태를 확인하세요.
+                        </p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                if robots_info.get("disallowed_paths"):
+                    with st.expander(f"🤖 robots.txt 차단 경로 ({len(robots_info['disallowed_paths'])}개)"):
+                        for p in robots_info["disallowed_paths"][:30]:
+                            st.code(p, language=None)
         else:
             db.update_crawl_run(run_id, status="failed", completed_at=datetime.utcnow().isoformat())
             st.error("크롤링에 실패했습니다. URL을 확인해주세요.")

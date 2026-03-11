@@ -24,7 +24,7 @@ from collections import defaultdict
 # 1. Constants — 설정 상수
 # ══════════════════════════════════════════════════════════════════════════════
 
-USER_AGENT = "SEODiagnosticPro/4.0 (+https://seodiagnosticpro.dev/bot)"
+USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 REQUEST_TIMEOUT = 15
 TITLE_MIN, TITLE_MAX = 30, 60
 DESC_MIN, DESC_MAX = 120, 160
@@ -78,14 +78,22 @@ def is_same_domain(url, base_domain):
 
 
 def build_session():
-    """크롤링용 requests.Session 생성"""
+    """크롤링용 requests.Session 생성 — 실제 브라우저처럼 동작"""
     s = requests.Session()
     s.headers.update({
         "User-Agent": USER_AGENT,
-        "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
         "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Cache-Control": "max-age=0",
     })
-    s.verify = False  # macOS Python SSL 인증서 문제 우회
+    s.verify = False
     return s
 
 
@@ -491,7 +499,13 @@ def analyze_page(url, session, crawl_depth=0):
     }
     try:
         start = time.time()
-        r = session.get(url, timeout=REQUEST_TIMEOUT)
+        r = session.get(url, timeout=REQUEST_TIMEOUT, allow_redirects=True)
+        if r.status_code == 403:
+            session.headers.update({
+                "Referer": url,
+                "DNT": "1",
+            })
+            r = session.get(url, timeout=REQUEST_TIMEOUT, allow_redirects=True)
         r_dict["Load (s)"] = round(time.time() - start, 2)
         r_dict["Status"] = r.status_code
         if r.status_code != 200 and not (300 <= r.status_code < 400):
@@ -1139,6 +1153,64 @@ def _build_crawl_result(pages, incoming_map, issues, crawl_start):
     }
 
 
+def _analyze_robots_txt(base_url, session):
+    """robots.txt를 분석하여 크롤링 제한 정보를 반환"""
+    info = {
+        "exists": False,
+        "raw_content": "",
+        "disallowed_paths": [],
+        "allowed_paths": [],
+        "crawl_delay": None,
+        "sitemaps": [],
+        "is_fully_blocked": False,
+        "warnings": [],
+    }
+    try:
+        r = session.get(urljoin(base_url, "/robots.txt"), timeout=REQUEST_TIMEOUT)
+        if r.status_code == 200 and "user-agent" in r.text.lower():
+            info["exists"] = True
+            info["raw_content"] = r.text[:5000]
+
+            current_agent_applies = False
+            for line in r.text.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+
+                if line.lower().startswith("user-agent:"):
+                    agent = line.split(":", 1)[1].strip().lower()
+                    current_agent_applies = agent == "*" or "bot" in agent or "crawl" in agent or "spider" in agent
+                elif current_agent_applies:
+                    if line.lower().startswith("disallow:"):
+                        path = line.split(":", 1)[1].strip()
+                        if path:
+                            info["disallowed_paths"].append(path)
+                            if path == "/":
+                                info["is_fully_blocked"] = True
+                    elif line.lower().startswith("allow:"):
+                        path = line.split(":", 1)[1].strip()
+                        if path:
+                            info["allowed_paths"].append(path)
+                    elif line.lower().startswith("crawl-delay:"):
+                        try:
+                            info["crawl_delay"] = float(line.split(":", 1)[1].strip())
+                        except ValueError:
+                            pass
+                    elif line.lower().startswith("sitemap:"):
+                        info["sitemaps"].append(line.split(":", 1)[1].strip())
+
+            # 경고 메시지 생성
+            if info["is_fully_blocked"]:
+                info["warnings"].append("robots.txt에서 모든 크롤러의 접근을 차단(Disallow: /)하고 있습니다. 강제로 크롤링하였습니다.")
+            if info["disallowed_paths"]:
+                info["warnings"].append(f"robots.txt에서 {len(info['disallowed_paths'])}개 경로가 차단되어 있습니다. 강제로 수집하였습니다.")
+            if info["crawl_delay"]:
+                info["warnings"].append(f"robots.txt에서 권장 크롤링 딜레이: {info['crawl_delay']}초")
+    except Exception:
+        pass
+    return info
+
+
 def run_full_crawl(base_url, max_pages, delay, progress_callback=None):
     """
     BFS 전체 크롤링.
@@ -1159,6 +1231,9 @@ def run_full_crawl(base_url, max_pages, delay, progress_callback=None):
     base_domain = urlparse(base_url).netloc
     session = build_session()
     crawl_start = time.time()
+
+    # robots.txt 분석
+    robots_info = _analyze_robots_txt(base_url, session)
 
     visited = set()
     queue = [normalize_url(base_url)]
@@ -1184,7 +1259,9 @@ def run_full_crawl(base_url, max_pages, delay, progress_callback=None):
 
     incoming_map = _compute_incoming_map(pages)
     issues = run_diagnostics(pages, incoming_map, {})
-    return _build_crawl_result(pages, incoming_map, issues, crawl_start)
+    result = _build_crawl_result(pages, incoming_map, issues, crawl_start)
+    result["robots_info"] = robots_info
+    return result
 
 
 def run_sitemap_crawl(base_url, max_pages, delay, progress_callback=None):
