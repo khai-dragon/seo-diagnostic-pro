@@ -1829,6 +1829,10 @@ def calculate_eeat_score(eeat_info, schema_info, security_info=None, content_inf
     E-E-A-T 시그널을 0~100 점수로 변환.
     각 축 25점 만점.
     """
+    if not isinstance(eeat_info, dict): eeat_info = {}
+    if not isinstance(schema_info, dict): schema_info = {}
+    if not isinstance(security_info, dict): security_info = {}
+    if not isinstance(content_info, dict): content_info = {}
     details = {}
 
     # ── Experience (경험) 25점 ──
@@ -1991,6 +1995,10 @@ def calculate_ai_readiness(soup, schema_info, eeat_info, content_info, tech_info
     - 기술적 접근성 (10%)
     - 차별화 (10%)
     """
+    if not isinstance(schema_info, dict): schema_info = {}
+    if not isinstance(eeat_info, dict): eeat_info = {}
+    if not isinstance(content_info, dict): content_info = {}
+    if not isinstance(tech_info, dict): tech_info = {}
     scores = {}
     details = {}
 

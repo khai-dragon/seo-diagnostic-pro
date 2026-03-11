@@ -2367,20 +2367,32 @@ def render_ai_geo(project):
             ai_scores = []
 
             for p in pages:
-                if p.get("Status") != 200:
+                try:
+                    if p.get("Status") != 200:
+                        continue
+                    eeat_info = p.get("_eeat") or {}
+                    if not isinstance(eeat_info, dict):
+                        eeat_info = {}
+                    schema_info = p.get("_schema") or {}
+                    if not isinstance(schema_info, dict):
+                        schema_info = {}
+                    security_info = p.get("_security") or {}
+                    if not isinstance(security_info, dict):
+                        security_info = {}
+                    content_info = p.get("_content") or {}
+                    if not isinstance(content_info, dict):
+                        content_info = {}
+                    tech_info = p.get("_tech") or {}
+                    if not isinstance(tech_info, dict):
+                        tech_info = {}
+
+                    eeat_result = crawler.calculate_eeat_score(eeat_info, schema_info, security_info, content_info)
+                    eeat_scores.append({"url": p.get("URL", ""), **eeat_result})
+
+                    ai_est = _estimate_ai_readiness(p)
+                    ai_scores.append({"url": p.get("URL", ""), **ai_est})
+                except Exception:
                     continue
-                eeat_info = p.get("_eeat", {})
-                schema_info = p.get("_schema", {})
-                security_info = p.get("_security", {})
-                content_info = p.get("_content", {})
-                tech_info = p.get("_tech", {})
-
-                eeat_result = crawler.calculate_eeat_score(eeat_info, schema_info, security_info, content_info)
-                eeat_scores.append({"url": p["URL"], **eeat_result})
-
-                # AI 준비도는 soup가 필요하므로 저장된 데이터에서 추정
-                ai_est = _estimate_ai_readiness(p)
-                ai_scores.append({"url": p["URL"], **ai_est})
 
             if eeat_scores:
                 avg_eeat = round(sum(e["score"] for e in eeat_scores) / len(eeat_scores))
@@ -2532,10 +2544,14 @@ def _estimate_ai_readiness(page_data):
     score = 0
     details = {}
 
-    eeat = page_data.get("_eeat", {})
-    schema = page_data.get("_schema", {})
-    tech = page_data.get("_tech", {})
-    content = page_data.get("_content", {})
+    eeat = page_data.get("_eeat") or {}
+    if not isinstance(eeat, dict): eeat = {}
+    schema = page_data.get("_schema") or {}
+    if not isinstance(schema, dict): schema = {}
+    tech = page_data.get("_tech") or {}
+    if not isinstance(tech, dict): tech = {}
+    content = page_data.get("_content") or {}
+    if not isinstance(content, dict): content = {}
     perf = page_data.get("_perf", {})
 
     # 인용 준비도 (25점) — 콘텐츠 구조 기반 추정
