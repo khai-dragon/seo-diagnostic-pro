@@ -42,10 +42,12 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── CSS ──────────────────────────────────────────────────────────────────────
+# ── CSS (Semrush-inspired Modern Design) ─────────────────────────────────────
 st.markdown("""
 <style>
-/* Streamlit 기본 UI 숨기기 (share, star, manage app, 햄버거 메뉴) */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+/* ── Streamlit 기본 UI 숨기기 ── */
 #MainMenu {visibility: hidden;}
 header {visibility: hidden;}
 footer {visibility: hidden;}
@@ -54,137 +56,296 @@ footer {visibility: hidden;}
 [data-testid="stDecoration"] {display: none !important;}
 .stDeployButton {display: none !important;}
 
-/* Original v4 styles */
-.sf-header{background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);padding:12px 20px;border-radius:8px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between}
-.sf-header h1{color:#e94560;font-size:1.4rem;margin:0;font-weight:700}
-.sf-header span{color:#a3a3a3;font-size:.85rem}
-.crawl-status{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px 16px;font-family:'SF Mono','Consolas',monospace;font-size:.82rem;color:#58a6ff;margin-bottom:8px}
-.crawl-status .url{color:#8b949e}.crawl-status .count{color:#3fb950;font-weight:bold}.crawl-status .eta{color:#f0883e}
-.summary-card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px;text-align:center;transition:all .2s;cursor:default}
-.summary-card:hover{border-color:#58a6ff;transform:translateY(-2px)}
-.summary-card .num{font-size:1.8rem;font-weight:800;color:#58a6ff}
-.summary-card .label{font-size:.78rem;color:#8b949e;margin-top:2px}
-.summary-card .hint{font-size:.65rem;color:#484f58;margin-top:4px;opacity:0;transition:opacity .2s}
+/* ── 전역 타이포그래피 & 기본 ── */
+html, body, [class*="css"] {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+}
+.stApp { background: #0a0e1a; }
+.stTabs [data-baseweb="tab-list"] {
+    gap: 0;
+    background: #111827;
+    border-radius: 12px;
+    padding: 4px;
+    border: 1px solid #1e293b;
+}
+.stTabs [data-baseweb="tab"] {
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: .82rem;
+    font-weight: 500;
+    color: #94a3b8;
+    background: transparent;
+    border: none;
+    transition: all .15s;
+}
+.stTabs [aria-selected="true"] {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%) !important;
+    color: #fff !important;
+    font-weight: 600;
+    box-shadow: 0 2px 8px rgba(99,102,241,.3);
+}
+.stTabs [data-baseweb="tab"]:hover:not([aria-selected="true"]) {
+    background: #1e293b;
+    color: #e2e8f0;
+}
+.stTabs [data-baseweb="tab-border"] { display: none; }
+.stTabs [data-baseweb="tab-highlight"] { display: none; }
+
+/* ── Expander 스타일 ── */
+.streamlit-expanderHeader {
+    background: #111827 !important;
+    border: 1px solid #1e293b !important;
+    border-radius: 10px !important;
+    font-weight: 600 !important;
+    font-size: .88rem !important;
+    color: #e2e8f0 !important;
+}
+details[open] > summary { border-radius: 10px 10px 0 0 !important; }
+.streamlit-expanderContent {
+    background: #0f172a !important;
+    border: 1px solid #1e293b !important;
+    border-top: none !important;
+    border-radius: 0 0 10px 10px !important;
+}
+
+/* ── 버튼 스타일 ── */
+.stButton > button[kind="primary"],
+.stFormSubmitButton > button[kind="primary"] {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%) !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    transition: all .2s !important;
+    box-shadow: 0 2px 8px rgba(99,102,241,.25) !important;
+}
+.stButton > button[kind="primary"]:hover,
+.stFormSubmitButton > button[kind="primary"]:hover {
+    box-shadow: 0 4px 16px rgba(99,102,241,.4) !important;
+    transform: translateY(-1px);
+}
+.stButton > button[kind="secondary"] {
+    background: #1e293b !important;
+    border: 1px solid #334155 !important;
+    border-radius: 8px !important;
+    color: #e2e8f0 !important;
+}
+
+/* ── 사이드바 ── */
+section[data-testid="stSidebar"] {
+    background: #0f172a !important;
+    border-right: 1px solid #1e293b !important;
+}
+section[data-testid="stSidebar"] .stButton > button {
+    background: transparent !important;
+    border: 1px solid transparent !important;
+    border-radius: 8px !important;
+    color: #94a3b8 !important;
+    font-weight: 500 !important;
+    text-align: left !important;
+    transition: all .15s !important;
+}
+section[data-testid="stSidebar"] .stButton > button:hover {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+
+/* ── 입력 필드 ── */
+.stTextInput > div > div > input,
+.stSelectbox > div > div,
+.stTextArea > div > div > textarea {
+    background: #111827 !important;
+    border: 1px solid #1e293b !important;
+    border-radius: 8px !important;
+    color: #e2e8f0 !important;
+}
+.stTextInput > div > div > input:focus {
+    border-color: #6366f1 !important;
+    box-shadow: 0 0 0 2px rgba(99,102,241,.2) !important;
+}
+
+/* ── Metric 카드 ── */
+[data-testid="stMetric"] {
+    background: #111827;
+    border: 1px solid #1e293b;
+    border-radius: 10px;
+    padding: 16px;
+    transition: all .2s;
+}
+[data-testid="stMetric"]:hover {
+    border-color: #6366f1;
+    box-shadow: 0 2px 12px rgba(99,102,241,.1);
+}
+[data-testid="stMetricLabel"] { color: #94a3b8 !important; font-size: .78rem !important; font-weight: 500 !important; }
+[data-testid="stMetricValue"] { color: #e2e8f0 !important; font-weight: 700 !important; }
+
+/* ── DataFrame ── */
+.stDataFrame { font-size: .83rem; border-radius: 10px; overflow: hidden; }
+
+/* ── Progress bar ── */
+.stProgress > div > div > div > div {
+    background: linear-gradient(90deg, #6366f1, #8b5cf6) !important;
+    border-radius: 4px;
+}
+
+/* ── 커스텀 카드 컴포넌트 ── */
+
+/* 네비게이션 바 */
+.nav-bar{background:linear-gradient(135deg,#111827 0%,#0f172a 100%);padding:14px 24px;border:1px solid #1e293b;display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;border-radius:12px}
+.nav-bar .brand{background:linear-gradient(135deg,#6366f1,#a855f7);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-weight:800;font-size:1.3rem;letter-spacing:-.02em}
+.nav-bar .user-info{color:#94a3b8;font-size:.85rem;font-weight:500}
+
+/* 요약 카드 (KPI) */
+.summary-card{background:linear-gradient(135deg,#111827 0%,#0f172a 100%);border:1px solid #1e293b;border-radius:12px;padding:18px 14px;text-align:center;transition:all .25s;cursor:default;position:relative;overflow:hidden}
+.summary-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#6366f1,#8b5cf6);opacity:0;transition:opacity .25s}
+.summary-card:hover{border-color:#6366f1;transform:translateY(-3px);box-shadow:0 8px 24px rgba(99,102,241,.12)}
+.summary-card:hover::before{opacity:1}
+.summary-card .num{font-size:1.9rem;font-weight:800;color:#e2e8f0;letter-spacing:-.02em}
+.summary-card .label{font-size:.75rem;color:#64748b;margin-top:4px;font-weight:500;text-transform:uppercase;letter-spacing:.05em}
+.summary-card .hint{font-size:.68rem;color:#475569;margin-top:6px;opacity:0;transition:opacity .25s}
 .summary-card:hover .hint{opacity:1}
-.summary-card.red .num{color:#f85149}.summary-card.yellow .num{color:#d29922}.summary-card.green .num{color:#3fb950}
-.issue-card{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px 14px;margin-bottom:6px;transition:all .2s;cursor:default}
-.issue-card:hover{border-color:#58a6ff;background:#1c2333}
-.issue-card .issue-fix{display:none;color:#3fb950;font-size:.82rem;margin-top:6px;padding-top:6px;border-top:1px solid #30363d}
+.summary-card.red .num{color:#ef4444}.summary-card.yellow .num{color:#f59e0b}.summary-card.green .num{color:#22c55e}
+
+/* 이슈 카드 */
+.issue-card{background:#111827;border:1px solid #1e293b;border-radius:10px;padding:12px 16px;margin-bottom:8px;transition:all .2s;cursor:default}
+.issue-card:hover{border-color:#334155;background:#1e293b;box-shadow:0 2px 8px rgba(0,0,0,.2)}
+.issue-card .issue-fix{display:none;color:#22c55e;font-size:.82rem;margin-top:8px;padding-top:8px;border-top:1px solid #1e293b;font-weight:500}
 .issue-card:hover .issue-fix{display:block}
-.issue-card .issue-header{margin-bottom:4px}.issue-card .issue-detail{color:#8b949e;font-size:.85rem}
-.issue-card .issue-url{color:#58a6ff;font-size:.8rem;margin-top:2px}
-.issue-card.high{border-left:3px solid #f85149}.issue-card.medium{border-left:3px solid #d29922}.issue-card.low{border-left:3px solid #3fb950}
-.badge-high{background:#f8514922;color:#f85149;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600}
-.badge-medium{background:#d2992222;color:#d29922;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600}
-.badge-low{background:#3fb95022;color:#3fb950;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600}
-.stDataFrame{font-size:.85rem}
-.history-card{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:8px 12px;margin-bottom:4px;font-size:.8rem}
-.history-card .delta-up{color:#f85149}.history-card .delta-down{color:#3fb950}
+.issue-card .issue-header{margin-bottom:4px;font-weight:600;color:#e2e8f0}
+.issue-card .issue-detail{color:#94a3b8;font-size:.85rem;line-height:1.5}
+.issue-card .issue-url{color:#818cf8;font-size:.8rem;margin-top:4px;font-weight:500}
+.issue-card.high{border-left:3px solid #ef4444}.issue-card.medium{border-left:3px solid #f59e0b}.issue-card.low{border-left:3px solid #22c55e}
 
-/* Landing page */
-.landing-hero{background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);padding:60px 20px;border-radius:16px;text-align:center}
-.landing-hero h1{color:#e94560;font-size:2.5rem;margin-bottom:10px}
-.landing-hero p{color:#a3a3a3;font-size:1.1rem}
-.score-circle{width:150px;height:150px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:20px auto;font-size:2.5rem;font-weight:800}
-.score-good{background:#3fb95022;border:4px solid #3fb950;color:#3fb950}
-.score-medium{background:#d2992222;border:4px solid #d29922;color:#d29922}
-.score-bad{background:#f8514922;border:4px solid #f85149;color:#f85149}
+/* 배지 */
+.badge-high{background:rgba(239,68,68,.12);color:#ef4444;padding:3px 10px;border-radius:6px;font-size:.73rem;font-weight:600;letter-spacing:.02em}
+.badge-medium{background:rgba(245,158,11,.12);color:#f59e0b;padding:3px 10px;border-radius:6px;font-size:.73rem;font-weight:600;letter-spacing:.02em}
+.badge-low{background:rgba(34,197,94,.12);color:#22c55e;padding:3px 10px;border-radius:6px;font-size:.73rem;font-weight:600;letter-spacing:.02em}
 
-/* Auth */
-.auth-container{max-width:400px;margin:40px auto;padding:30px;background:#161b22;border:1px solid #30363d;border-radius:12px}
+/* 점수 원형 */
+.score-circle{width:150px;height:150px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:20px auto;font-size:2.5rem;font-weight:800;position:relative}
+.score-good{background:rgba(34,197,94,.08);border:4px solid #22c55e;color:#22c55e;box-shadow:0 0 30px rgba(34,197,94,.15)}
+.score-medium{background:rgba(245,158,11,.08);border:4px solid #f59e0b;color:#f59e0b;box-shadow:0 0 30px rgba(245,158,11,.15)}
+.score-bad{background:rgba(239,68,68,.08);border:4px solid #ef4444;color:#ef4444;box-shadow:0 0 30px rgba(239,68,68,.15)}
 
-/* Project cards */
-.project-card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:20px;margin-bottom:12px;transition:all .2s;cursor:pointer}
-.project-card:hover{border-color:#58a6ff;transform:translateY(-2px)}
+/* 히스토리 카드 */
+.history-card{background:#111827;border:1px solid #1e293b;border-radius:8px;padding:10px 14px;margin-bottom:6px;font-size:.82rem}
+.history-card .delta-up{color:#ef4444;font-weight:600}.history-card .delta-down{color:#22c55e;font-weight:600}
 
-/* Insight cards */
-.insight-card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px;margin-bottom:8px}
-.insight-card.urgent{border-left:4px solid #f85149}
-.insight-card.improved{border-left:4px solid #3fb950}
-.insight-card.resolved{border-left:4px solid #3fb950}
-.insight-card.new-page{border-left:4px solid #58a6ff}
-.insight-card.new-issue{border-left:4px solid #d29922}
-.insight-card.lost-page{border-left:4px solid #f85149}
-.insight-card .insight-title{font-weight:600;color:#e6edf3;margin-bottom:4px}
-.insight-card .insight-detail{color:#8b949e;font-size:.85rem}
-.insight-card .insight-url{color:#58a6ff;font-size:.8rem;margin-top:4px}
+/* 랜딩 */
+.landing-hero{background:linear-gradient(135deg,#0f172a 0%,#1e1b4b 50%,#312e81 100%);padding:60px 20px;border-radius:20px;text-align:center}
+.landing-hero h1{color:#fff;font-size:2.5rem;margin-bottom:10px}
+.landing-hero p{color:#94a3b8;font-size:1.1rem}
 
-/* Feature cards for landing */
-.feature-card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:24px;text-align:center}
-.feature-card h3{color:#58a6ff;font-size:1.1rem;margin-bottom:8px}
-.feature-card p{color:#8b949e;font-size:.9rem}
+/* 인증 */
+.auth-container{max-width:420px;margin:40px auto;padding:32px;background:#111827;border:1px solid #1e293b;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.3)}
 
-/* Blurred teaser */
+/* 프로젝트 카드 */
+.project-card{background:linear-gradient(135deg,#111827 0%,#0f172a 100%);border:1px solid #1e293b;border-radius:14px;padding:22px;margin-bottom:14px;transition:all .25s;cursor:pointer;position:relative;overflow:hidden}
+.project-card::after{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#6366f1,#a855f7);opacity:0;transition:opacity .25s}
+.project-card:hover{border-color:#6366f1;transform:translateY(-3px);box-shadow:0 8px 32px rgba(99,102,241,.15)}
+.project-card:hover::after{opacity:1}
+
+/* 인사이트 카드 */
+.insight-card{background:#111827;border:1px solid #1e293b;border-radius:10px;padding:16px;margin-bottom:10px;transition:all .2s}
+.insight-card:hover{border-color:#334155;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+.insight-card.urgent{border-left:4px solid #ef4444}
+.insight-card.improved{border-left:4px solid #22c55e}
+.insight-card.resolved{border-left:4px solid #22c55e}
+.insight-card.new-page{border-left:4px solid #818cf8}
+.insight-card.new-issue{border-left:4px solid #f59e0b}
+.insight-card.lost-page{border-left:4px solid #ef4444}
+.insight-card .insight-title{font-weight:600;color:#e2e8f0;margin-bottom:4px;font-size:.92rem}
+.insight-card .insight-detail{color:#94a3b8;font-size:.85rem;line-height:1.5}
+.insight-card .insight-url{color:#818cf8;font-size:.8rem;margin-top:4px;font-weight:500}
+
+/* 기능 카드 (랜딩) */
+.feature-card{background:#111827;border:1px solid #1e293b;border-radius:14px;padding:28px;text-align:center;transition:all .25s}
+.feature-card:hover{border-color:#6366f1;transform:translateY(-2px);box-shadow:0 4px 20px rgba(99,102,241,.1)}
+.feature-card h3{color:#818cf8;font-size:1.1rem;margin-bottom:8px;font-weight:700}
+.feature-card p{color:#94a3b8;font-size:.88rem;line-height:1.5}
+
+/* 블러 티저 */
 .blurred{filter:blur(4px);user-select:none;pointer-events:none}
 
-/* Navigation */
-.nav-bar{background:#0d1117;padding:10px 20px;border-bottom:1px solid #30363d;display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;border-radius:8px}
-.nav-bar .brand{color:#e94560;font-weight:700;font-size:1.2rem}
-.nav-bar .user-info{color:#8b949e;font-size:.9rem}
+/* 퀵스캔 메트릭 */
+.metric-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:16px 0}
+.metric-item{background:#111827;border:1px solid #1e293b;border-radius:10px;padding:14px 18px;text-align:center;min-width:120px;transition:all .2s}
+.metric-item:hover{border-color:#334155;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+.metric-item .metric-icon{font-size:1.4rem;margin-bottom:6px}
+.metric-item .metric-label{font-size:.73rem;color:#64748b;font-weight:500;text-transform:uppercase;letter-spacing:.04em}
+.metric-item .metric-value{font-size:.88rem;font-weight:600;color:#e2e8f0}
+.metric-item.pass .metric-icon{color:#22c55e}
+.metric-item.fail .metric-icon{color:#ef4444}
+.metric-item.warn .metric-icon{color:#f59e0b}
 
-/* Quick scan metrics */
-.metric-row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:16px 0}
-.metric-item{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px 18px;text-align:center;min-width:120px}
-.metric-item .metric-icon{font-size:1.4rem;margin-bottom:4px}
-.metric-item .metric-label{font-size:.75rem;color:#8b949e}
-.metric-item .metric-value{font-size:.9rem;font-weight:600;color:#e6edf3}
-.metric-item.pass .metric-icon{color:#3fb950}
-.metric-item.fail .metric-icon{color:#f85149}
-.metric-item.warn .metric-icon{color:#d29922}
+/* 티저 이슈 */
+.teaser-issue{background:#111827;border:1px solid #1e293b;border-radius:8px;padding:12px 16px;margin-bottom:6px;display:flex;align-items:center;gap:10px}
+.teaser-issue .issue-name{color:#e2e8f0;font-size:.88rem;flex:1;font-weight:500}
+.teaser-issue .issue-fix-blur{color:#22c55e;font-size:.85rem;filter:blur(4px);user-select:none}
 
-/* Teaser issue */
-.teaser-issue{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px 14px;margin-bottom:6px;display:flex;align-items:center;gap:10px}
-.teaser-issue .issue-name{color:#e6edf3;font-size:.9rem;flex:1}
-.teaser-issue .issue-fix-blur{color:#3fb950;font-size:.85rem;filter:blur(4px);user-select:none}
+/* 스케줄 배지 */
+.schedule-badge{display:inline-block;padding:3px 10px;border-radius:6px;font-size:.73rem;font-weight:600;letter-spacing:.02em}
+.schedule-manual{background:#1e293b;color:#64748b}
+.schedule-daily{background:rgba(99,102,241,.12);color:#818cf8}
+.schedule-weekly{background:rgba(245,158,11,.12);color:#f59e0b}
 
-/* Schedule badge */
-.schedule-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600}
-.schedule-manual{background:#30363d;color:#8b949e}
-.schedule-daily{background:#58a6ff22;color:#58a6ff}
-.schedule-weekly{background:#d2992222;color:#d29922}
-
-/* Google Sign-In button */
-.google-btn{display:flex;align-items:center;justify-content:center;gap:12px;background:#ffffff;color:#3c4043;border:1px solid #dadce0;border-radius:8px;padding:14px 24px;font-size:1rem;font-weight:500;cursor:pointer;transition:all .2s;text-decoration:none;width:100%;margin:12px 0}
-.google-btn:hover{background:#f7f8f8;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+/* Google Sign-In */
+.google-btn{display:flex;align-items:center;justify-content:center;gap:12px;background:#ffffff;color:#3c4043;border:1px solid #dadce0;border-radius:10px;padding:14px 24px;font-size:1rem;font-weight:500;cursor:pointer;transition:all .2s;text-decoration:none;width:100%;margin:12px 0}
+.google-btn:hover{background:#f7f8f8;box-shadow:0 2px 8px rgba(0,0,0,.15)}
 .google-btn img{width:20px;height:20px}
 
-/* Plan badge */
-.plan-badge{display:inline-block;padding:3px 10px;border-radius:12px;font-size:.75rem;font-weight:600}
-.plan-free{background:#30363d;color:#8b949e}
-.plan-business{background:#58a6ff22;color:#58a6ff}
+/* 플랜 배지 */
+.plan-badge{display:inline-block;padding:4px 12px;border-radius:8px;font-size:.73rem;font-weight:600}
+.plan-free{background:#1e293b;color:#64748b}
+.plan-business{background:rgba(99,102,241,.12);color:#818cf8}
 
-/* Project limit bar */
-.limit-bar{background:#21262d;border-radius:4px;height:8px;overflow:hidden;margin:4px 0}
-.limit-bar-fill{background:#58a6ff;height:100%;border-radius:4px;transition:width .3s}
-.limit-bar-full .limit-bar-fill{background:#f85149}
+/* 프로젝트 제한 바 */
+.limit-bar{background:#1e293b;border-radius:6px;height:6px;overflow:hidden;margin:6px 0}
+.limit-bar-fill{background:linear-gradient(90deg,#6366f1,#8b5cf6);height:100%;border-radius:6px;transition:width .3s}
+.limit-bar-full .limit-bar-fill{background:linear-gradient(90deg,#ef4444,#f87171)}
 
-/* Traffic/SC styles */
-.traffic-metric{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;text-align:center}
-.traffic-metric .big-num{font-size:2rem;font-weight:800;color:#58a6ff}
-.traffic-metric .label{font-size:.78rem;color:#8b949e;margin-top:4px}
-.traffic-metric .delta{font-size:.82rem;margin-top:4px}
-.traffic-metric .delta.up{color:#3fb950}
-.traffic-metric .delta.down{color:#f85149}
+/* 트래픽/SC */
+.traffic-metric{background:#111827;border:1px solid #1e293b;border-radius:12px;padding:18px;text-align:center;transition:all .2s}
+.traffic-metric:hover{border-color:#334155;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+.traffic-metric .big-num{font-size:2rem;font-weight:800;color:#e2e8f0;letter-spacing:-.02em}
+.traffic-metric .label{font-size:.75rem;color:#64748b;margin-top:4px;font-weight:500;text-transform:uppercase;letter-spacing:.04em}
+.traffic-metric .delta{font-size:.82rem;margin-top:6px;font-weight:600}
+.traffic-metric .delta.up{color:#22c55e}
+.traffic-metric .delta.down{color:#ef4444}
 
-/* CWV gauge */
-.cwv-card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px;text-align:center;min-width:100px}
-.cwv-card .cwv-value{font-size:1.5rem;font-weight:700}
-.cwv-card .cwv-label{font-size:.75rem;color:#8b949e;margin-top:2px}
-.cwv-card .cwv-rating{font-size:.72rem;padding:2px 8px;border-radius:4px;margin-top:4px;display:inline-block}
-.cwv-good{color:#3fb950;background:#3fb95022}
-.cwv-needs-improvement{color:#d29922;background:#d2992222}
-.cwv-poor{color:#f85149;background:#f8514922}
+/* CWV 게이지 */
+.cwv-card{background:#111827;border:1px solid #1e293b;border-radius:12px;padding:18px;text-align:center;min-width:100px;transition:all .2s}
+.cwv-card:hover{border-color:#334155}
+.cwv-card .cwv-value{font-size:1.5rem;font-weight:700;color:#e2e8f0}
+.cwv-card .cwv-label{font-size:.73rem;color:#64748b;margin-top:4px;font-weight:500;text-transform:uppercase;letter-spacing:.03em}
+.cwv-card .cwv-rating{font-size:.72rem;padding:3px 10px;border-radius:6px;margin-top:6px;display:inline-block;font-weight:600}
+.cwv-good{color:#22c55e;background:rgba(34,197,94,.1)}
+.cwv-needs-improvement{color:#f59e0b;background:rgba(245,158,11,.1)}
+.cwv-poor{color:#ef4444;background:rgba(239,68,68,.1)}
 
-/* Change history */
-.change-card{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px 14px;margin-bottom:6px}
-.change-card .change-field{color:#58a6ff;font-weight:600;font-size:.85rem}
-.change-card .change-old{color:#f85149;text-decoration:line-through;font-size:.82rem}
-.change-card .change-new{color:#3fb950;font-size:.82rem}
-.change-card .change-url{color:#8b949e;font-size:.78rem;margin-top:4px}
+/* 변경 히스토리 */
+.change-card{background:#111827;border:1px solid #1e293b;border-radius:10px;padding:12px 16px;margin-bottom:8px;transition:all .15s}
+.change-card:hover{border-color:#334155}
+.change-card .change-field{color:#818cf8;font-weight:600;font-size:.85rem}
+.change-card .change-old{color:#ef4444;text-decoration:line-through;font-size:.82rem}
+.change-card .change-new{color:#22c55e;font-size:.82rem;font-weight:500}
+.change-card .change-url{color:#64748b;font-size:.78rem;margin-top:4px}
 
-/* SC connection */
-.sc-connected{background:#3fb95011;border:1px solid #3fb95044;border-radius:8px;padding:12px;margin:8px 0}
-.sc-disconnected{background:#f8514911;border:1px solid #f8514944;border-radius:8px;padding:12px;margin:8px 0}
+/* SC 연결 */
+.sc-connected{background:rgba(34,197,94,.06);border:1px solid rgba(34,197,94,.2);border-radius:10px;padding:14px;margin:10px 0}
+.sc-disconnected{background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.2);border-radius:10px;padding:14px;margin:10px 0}
+
+/* 크롤링 상태 */
+.crawl-status{background:#111827;border:1px solid #1e293b;border-radius:10px;padding:12px 18px;font-family:'SF Mono','JetBrains Mono','Consolas',monospace;font-size:.82rem;color:#818cf8;margin-bottom:8px}
+.crawl-status .url{color:#94a3b8}.crawl-status .count{color:#22c55e;font-weight:700}.crawl-status .eta{color:#f59e0b;font-weight:600}
+
+/* ── 글로벌 세부 조정 ── */
+h1, h2, h3, h4 { color: #f1f5f9 !important; font-weight: 700 !important; letter-spacing: -.02em; }
+.stCaption { color: #64748b !important; }
+.stMarkdown a { color: #818cf8 !important; }
+.stMarkdown a:hover { color: #a5b4fc !important; }
+hr { border-color: #1e293b !important; }
+.stAlert { border-radius: 10px !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -281,7 +442,7 @@ def render_landing():
     # Top navigation with auth buttons
     tc1, tc2, tc3, tc4 = st.columns([4, 1.5, 1.5, 1])
     with tc1:
-        st.markdown('<span style="color:#e94560;font-weight:800;font-size:1.3rem;">🌐 weballin</span>', unsafe_allow_html=True)
+        st.markdown('<span style="color:#818cf8;font-weight:800;font-size:1.3rem;">🌐 weballin</span>', unsafe_allow_html=True)
     with tc3:
         if st.button("로그인", use_container_width=True, key="top_login"):
             navigate("login")
@@ -291,14 +452,14 @@ def render_landing():
 
     # Hero section
     st.markdown("""
-    <div style="background:linear-gradient(135deg,#1a1a2e 0%,#16213e 30%,#0f3460 60%,#e94560 200%);padding:80px 20px;border-radius:20px;text-align:center;margin-bottom:30px;">
+    <div style="background:linear-gradient(135deg,#0f172a 0%,#1e1b4b 40%,#312e81 80%,#6366f1 150%);padding:80px 20px;border-radius:20px;text-align:center;margin-bottom:30px;">
         <h1 style="color:#ffffff;font-size:3rem;font-weight:800;margin-bottom:12px;line-height:1.3;">
             당신의 사이트,<br>검색엔진은 어떻게 보고 있을까요?
         </h1>
         <p style="color:#c9d1d9;font-size:1.2rem;margin-bottom:8px;">
             SEO · 콘텐츠 · 테크니컬 · AI 최적화까지 한 번에 진단하고 개선하세요
         </p>
-        <p style="color:#8b949e;font-size:.95rem;">
+        <p style="color:#94a3b8;font-size:.95rem;">
             지금 바로 무료로 사이트를 분석해보세요 — 가입도 필요 없습니다
         </p>
     </div>
@@ -328,10 +489,10 @@ def render_landing():
             # WAF 차단 안내
             if result.get("waf_blocked"):
                 st.markdown(f"""
-                <div style="background:#d2992211;border:1px solid #d2992244;border-radius:10px;padding:20px;margin:20px 0;text-align:center;">
+                <div style="background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.25);border-radius:10px;padding:20px;margin:20px 0;text-align:center;">
                     <div style="font-size:2.5rem;margin-bottom:10px;">🛡️</div>
-                    <h3 style="color:#d29922;margin-bottom:8px;">WAF(웹 방화벽)에 의해 접근이 제한되었습니다</h3>
-                    <p style="color:#8b949e;font-size:.9rem;">
+                    <h3 style="color:#f59e0b;margin-bottom:8px;">WAF(웹 방화벽)에 의해 접근이 제한되었습니다</h3>
+                    <p style="color:#94a3b8;font-size:.9rem;">
                         <strong>{scan_url}</strong> 사이트는 봇 접근을 차단하고 있습니다.<br>
                         이런 사이트도 <strong>프로젝트를 만들어 전체 크롤링</strong>을 시도하면 일부 페이지를 수집할 수 있습니다.
                     </p>
@@ -344,7 +505,7 @@ def render_landing():
             st.markdown(f"""
             <div style="text-align:center;margin:20px 0;">
                 <div class="score-circle {score_class}">{score}</div>
-                <p style="color:#8b949e;font-size:.9rem;">SEO 종합 점수</p>
+                <p style="color:#94a3b8;font-size:.9rem;">SEO 종합 점수</p>
             </div>
             """, unsafe_allow_html=True)
 
@@ -365,7 +526,7 @@ def render_landing():
 
             mc = st.columns(5)
             for col, (label, ok, icon) in zip(mc, metric_items):
-                color = "#3fb950" if ok else "#f85149"
+                color = "#22c55e" if ok else "#ef4444"
                 col.markdown(f"""
                 <div class="summary-card" style="padding:12px;">
                     <div style="font-size:1.5rem;">{icon}</div>
@@ -386,9 +547,9 @@ def render_landing():
                     <div class="issue-card {sev_cls}" style="position:relative;">
                         <div class="issue-header">
                             <span class="badge-{sev_cls}">{sev}</span>
-                            <span style="color:#e6edf3;font-weight:600;margin-left:8px;">{msg}</span>
+                            <span style="color:#e2e8f0;font-weight:600;margin-left:8px;">{msg}</span>
                         </div>
-                        <div class="blurred" style="margin-top:8px;color:#3fb950;font-size:.85rem;">
+                        <div class="blurred" style="margin-top:8px;color:#22c55e;font-size:.85rem;">
                             해결 방법: 무료 가입 후 확인하세요
                         </div>
                     </div>
@@ -408,8 +569,8 @@ def render_landing():
     st.markdown("---")
     st.markdown("""
     <div style="text-align:center;margin:30px 0 20px 0;">
-        <h2 style="color:#e6edf3;font-size:1.8rem;">왜 weballin인가요?</h2>
-        <p style="color:#8b949e;font-size:1rem;">전문가 수준의 SEO 분석을 누구나 쉽게</p>
+        <h2 style="color:#e2e8f0;font-size:1.8rem;">왜 weballin인가요?</h2>
+        <p style="color:#94a3b8;font-size:1rem;">전문가 수준의 SEO 분석을 누구나 쉽게</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -443,7 +604,7 @@ def render_landing():
     st.markdown("---")
     st.markdown("""
     <div style="text-align:center;margin:20px 0;">
-        <h2 style="color:#e6edf3;font-size:1.5rem;">3단계로 시작하세요</h2>
+        <h2 style="color:#e2e8f0;font-size:1.5rem;">3단계로 시작하세요</h2>
     </div>
     """, unsafe_allow_html=True)
 
@@ -451,25 +612,25 @@ def render_landing():
     with s1:
         st.markdown("""
         <div style="text-align:center;padding:20px;">
-            <div style="background:#58a6ff22;width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;font-size:1.5rem;font-weight:800;color:#58a6ff;">1</div>
-            <h4 style="color:#e6edf3;">이메일로 가입</h4>
-            <p style="color:#8b949e;font-size:.85rem;">30초면 끝. 법인 이메일은 프로젝트 5개!</p>
+            <div style="background:rgba(99,102,241,.12);width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;font-size:1.5rem;font-weight:800;color:#818cf8;">1</div>
+            <h4 style="color:#e2e8f0;">이메일로 가입</h4>
+            <p style="color:#94a3b8;font-size:.85rem;">30초면 끝. 법인 이메일은 프로젝트 5개!</p>
         </div>
         """, unsafe_allow_html=True)
     with s2:
         st.markdown("""
         <div style="text-align:center;padding:20px;">
-            <div style="background:#3fb95022;width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;font-size:1.5rem;font-weight:800;color:#3fb950;">2</div>
-            <h4 style="color:#e6edf3;">사이트 등록 & 크롤링</h4>
-            <p style="color:#8b949e;font-size:.85rem;">URL 입력하면 자동으로 200+ 항목을 진단합니다</p>
+            <div style="background:rgba(34,197,94,.1);width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;font-size:1.5rem;font-weight:800;color:#22c55e;">2</div>
+            <h4 style="color:#e2e8f0;">사이트 등록 & 크롤링</h4>
+            <p style="color:#94a3b8;font-size:.85rem;">URL 입력하면 자동으로 200+ 항목을 진단합니다</p>
         </div>
         """, unsafe_allow_html=True)
     with s3:
         st.markdown("""
         <div style="text-align:center;padding:20px;">
-            <div style="background:#e9456022;width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;font-size:1.5rem;font-weight:800;color:#e94560;">3</div>
-            <h4 style="color:#e6edf3;">인사이트 확인 & 개선</h4>
-            <p style="color:#8b949e;font-size:.85rem;">콘텐츠 & 테크니컬 인사이트로 즉시 행동하세요</p>
+            <div style="background:rgba(99,102,241,.12);width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;font-size:1.5rem;font-weight:800;color:#818cf8;">3</div>
+            <h4 style="color:#e2e8f0;">인사이트 확인 & 개선</h4>
+            <p style="color:#94a3b8;font-size:.85rem;">콘텐츠 & 테크니컬 인사이트로 즉시 행동하세요</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -477,8 +638,8 @@ def render_landing():
     st.markdown("---")
     st.markdown("""
     <div style="text-align:center;padding:40px 20px;">
-        <h2 style="color:#e6edf3;font-size:1.8rem;margin-bottom:8px;">지금 시작하세요</h2>
-        <p style="color:#8b949e;font-size:1rem;margin-bottom:20px;">무료로 사이트를 진단하고, SEO 전문가처럼 개선하세요</p>
+        <h2 style="color:#e2e8f0;font-size:1.8rem;margin-bottom:8px;">지금 시작하세요</h2>
+        <p style="color:#94a3b8;font-size:1rem;margin-bottom:20px;">무료로 사이트를 진단하고, SEO 전문가처럼 개선하세요</p>
     </div>
     """, unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1, 2, 1])
@@ -508,16 +669,16 @@ def _render_google_auth_page(title, subtitle):
     """Google 로그인/가입 공통 UI"""
     st.markdown(f"""
     <div style="text-align:center;margin:40px 0 20px 0;">
-        <h2 style="color:#e94560;">{title}</h2>
-        <p style="color:#8b949e;">{subtitle}</p>
+        <h2 style="color:#818cf8;">{title}</h2>
+        <p style="color:#94a3b8;">{subtitle}</p>
     </div>
     """, unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns([1, 1.5, 1])
     with col2:
         st.markdown("""
-        <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:40px 30px;text-align:center;">
-            <p style="color:#8b949e;margin-bottom:20px;font-size:.9rem;">
+        <div style="background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:40px 30px;text-align:center;">
+            <p style="color:#94a3b8;margin-bottom:20px;font-size:.9rem;">
                 이메일로 간편하게 시작하세요
             </p>
         </div>
@@ -655,11 +816,11 @@ def _render_google_auth_page(title, subtitle):
 
         # 안내 메시지
         st.markdown("""
-        <div style="background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:16px;margin:20px 0;text-align:center;">
-            <p style="color:#58a6ff;font-size:.9rem;font-weight:600;margin-bottom:8px;">
+        <div style="background:#111827;border:1px solid #1e293b;border-radius:8px;padding:16px;margin:20px 0;text-align:center;">
+            <p style="color:#818cf8;font-size:.9rem;font-weight:600;margin-bottom:8px;">
                 🏢 법인 이메일 = 프로젝트 5개 · 개인 이메일 = 프로젝트 1개
             </p>
-            <p style="color:#8b949e;font-size:.82rem;margin:0;">
+            <p style="color:#94a3b8;font-size:.82rem;margin:0;">
                 법인 이메일은 비밀번호를 설정하여 안전하게 로그인합니다.<br>
                 개인 이메일(Gmail, Naver 등)은 이메일만 입력하면 바로 시작됩니다.
             </p>
@@ -710,7 +871,7 @@ def render_dashboard():
         <h2 style="margin:0;">📊 대시보드</h2>
         <div style="text-align:right;">
             <span class="plan-badge {plan_cls}">{plan_label}</span>
-            <span style="color:#8b949e;font-size:.82rem;margin-left:8px;">프로젝트 {current_count}/{max_proj}</span>
+            <span style="color:#94a3b8;font-size:.82rem;margin-left:8px;">프로젝트 {current_count}/{max_proj}</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -724,8 +885,8 @@ def render_dashboard():
 
     if not is_corp and current_count >= max_proj:
         st.markdown("""
-        <div style="background:#58a6ff11;border:1px solid #58a6ff44;border-radius:8px;padding:12px;margin:12px 0;text-align:center;">
-            <p style="color:#58a6ff;font-size:.9rem;margin:0;">
+        <div style="background:rgba(99,102,241,.06);border:1px solid rgba(99,102,241,.25);border-radius:8px;padding:12px;margin:12px 0;text-align:center;">
+            <p style="color:#818cf8;font-size:.9rem;margin:0;">
                 🏢 법인 이메일로 가입하면 프로젝트를 5개까지 만들 수 있습니다!
             </p>
         </div>
@@ -768,15 +929,15 @@ def render_dashboard():
         <div class="project-card">
             <div style="display:flex;justify-content:space-between;align-items:center;">
                 <div>
-                    <strong style="color:#e6edf3;font-size:1.1rem;">📁 {proj['name']}</strong>
+                    <strong style="color:#e2e8f0;font-size:1.1rem;">📁 {proj['name']}</strong>
                     <span class="schedule-badge {sched_cls}" style="margin-left:8px;">{sched_label}</span>
                 </div>
-                <span style="color:#8b949e;font-size:.85rem;">{last_crawl_info}</span>
+                <span style="color:#94a3b8;font-size:.85rem;">{last_crawl_info}</span>
             </div>
-            <div style="color:#58a6ff;font-size:.85rem;margin-top:4px;">{proj['url']}</div>
+            <div style="color:#818cf8;font-size:.85rem;margin-top:4px;">{proj['url']}</div>
             <div style="margin-top:8px;display:flex;gap:16px;align-items:center;">
-                <span style="color:#8b949e;font-size:.85rem;">{issue_summary}</span>
-                <span style="color:#484f58;font-size:.8rem;">{next_crawl}</span>
+                <span style="color:#94a3b8;font-size:.85rem;">{issue_summary}</span>
+                <span style="color:#475569;font-size:.8rem;">{next_crawl}</span>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -1006,15 +1167,15 @@ def render_project_overview(project):
     health_score = max(0, min(100, int(health_score)))
 
     if health_score >= 80:
-        health_color = "#3fb950"
+        health_color = "#22c55e"
         health_cls = "score-good"
         health_label = "양호"
     elif health_score >= 50:
-        health_color = "#d29922"
+        health_color = "#f59e0b"
         health_cls = "score-medium"
         health_label = "개선 필요"
     else:
-        health_color = "#f85149"
+        health_color = "#ef4444"
         health_cls = "score-bad"
         health_label = "위험"
 
@@ -1031,7 +1192,7 @@ def render_project_overview(project):
         with st.expander("📊 점수 산출 근거", expanded=True):
             for cat_name, cat_data in health_breakdown.items():
                 pct = (cat_data["score"] / cat_data["max"] * 100) if cat_data["max"] > 0 else 0
-                bar_color = "#3fb950" if pct >= 80 else "#d29922" if pct >= 50 else "#f85149"
+                bar_color = "#22c55e" if pct >= 80 else "#f59e0b" if pct >= 50 else "#ef4444"
                 label_emoji = "🟢" if pct >= 80 else "🟡" if pct >= 50 else "🔴"
                 st.markdown(f"{label_emoji} **{cat_name}** — {cat_data['score']}/{cat_data['max']}")
                 st.progress(pct / 100)
@@ -1174,7 +1335,7 @@ def render_crawl_execution(project):
 
         progress_bar.progress(1.0)
         status_line.markdown(
-            f'<div class="crawl-status" style="border-color:#3fb950;">'
+            f'<div class="crawl-status" style="border-color:#22c55e;">'
             f'✅ <span class="count">크롤링 완료!</span> {len(pages)}개 페이지 · '
             f'{fmt_time(elapsed_total)} 소요</div>',
             unsafe_allow_html=True,
@@ -1235,9 +1396,9 @@ def render_crawl_execution(project):
                     st.warning(f"🤖 {warn}")
                 if robots_info.get("is_fully_blocked"):
                     st.markdown("""
-                    <div style="background:#f8514911;border:1px solid #f8514944;border-radius:8px;padding:12px;margin:8px 0;">
-                        <p style="color:#f85149;font-weight:600;margin-bottom:4px;">⚠️ 강제 크롤링 안내</p>
-                        <p style="color:#8b949e;font-size:.85rem;margin:0;">
+                    <div style="background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.25);border-radius:8px;padding:12px;margin:8px 0;">
+                        <p style="color:#ef4444;font-weight:600;margin-bottom:4px;">⚠️ 강제 크롤링 안내</p>
+                        <p style="color:#94a3b8;font-size:.85rem;margin:0;">
                             이 사이트는 robots.txt에서 크롤러 접근을 차단하고 있습니다.
                             SEO 진단 목적으로 강제 수집하였으며, 이는 검색엔진이 실제로 색인하는 내용과 다를 수 있습니다.
                             Google Search Console에서 실제 색인 상태를 확인하세요.
@@ -1696,13 +1857,13 @@ def render_insights(project):
                 change_types[FIELD_NAMES_KR.get(c.get("field", c.get("field_name", "")), c.get("field", c.get("field_name", "")))] += 1
             change_summary = " · ".join([f"{k} {v}건" for k, v in sorted(change_types.items(), key=lambda x: -x[1])])
             st.markdown(f"""
-            <div style="background:#f8514915;border:1px solid #f85149;border-radius:8px;padding:14px 20px;margin-bottom:16px;">
+            <div style="background:rgba(239,68,68,.08);border:1px solid #f85149;border-radius:8px;padding:14px 20px;margin-bottom:16px;">
                 <div style="display:flex;align-items:center;gap:10px;">
                     <span style="font-size:1.4rem;">🔔</span>
                     <div>
-                        <div style="color:#f85149;font-weight:700;font-size:1rem;">페이지 변경 감지 — {len(changes)}건</div>
-                        <div style="color:#e6edf3;font-size:.85rem;margin-top:2px;">{change_summary}</div>
-                        <div style="color:#8b949e;font-size:.78rem;margin-top:4px;">이전 크롤링 대비 변경된 항목입니다. '변경 히스토리' 탭에서 상세 확인하세요.</div>
+                        <div style="color:#ef4444;font-weight:700;font-size:1rem;">페이지 변경 감지 — {len(changes)}건</div>
+                        <div style="color:#e2e8f0;font-size:.85rem;margin-top:2px;">{change_summary}</div>
+                        <div style="color:#94a3b8;font-size:.78rem;margin-top:4px;">이전 크롤링 대비 변경된 항목입니다. '변경 히스토리' 탭에서 상세 확인하세요.</div>
                     </div>
                 </div>
             </div>
@@ -1911,19 +2072,19 @@ def render_insights(project):
                     if cannibalized:
                         with st.expander(f"🔀 키워드 잠식 (Cannibalization) — {len(cannibalized)}개 쿼리", expanded=False):
                             st.markdown("""
-                            <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;margin-bottom:12px;font-size:.85rem;color:#8b949e;">
+                            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:12px;margin-bottom:12px;font-size:.85rem;color:#94a3b8;">
                                 💡 동일 키워드에 여러 페이지가 경쟁하면 순위가 분산됩니다. 하나의 대표 페이지를 정하고 나머지에서 301 리다이렉트 또는 canonical 태그를 설정하세요.
                             </div>
                             """, unsafe_allow_html=True)
                             for cann in cannibalized[:15]:
                                 st.markdown(f"**🔑 \"{cann['query']}\"** — {len(cann['pages'])}개 페이지 경쟁")
                                 for pg in cann["pages"]:
-                                    pos_color = "#3fb950" if pg["avg_pos"] <= 10 else "#d29922" if pg["avg_pos"] <= 20 else "#f85149"
+                                    pos_color = "#22c55e" if pg["avg_pos"] <= 10 else "#f59e0b" if pg["avg_pos"] <= 20 else "#ef4444"
                                     st.markdown(f"""
-                                    <div style="background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:8px 12px;margin:4px 0;font-size:.82rem;">
+                                    <div style="background:#111827;border:1px solid #1e293b;border-radius:6px;padding:8px 12px;margin:4px 0;font-size:.82rem;">
                                         <span style="color:{pos_color};font-weight:700;">#{pg['avg_pos']}</span>
-                                        <span style="color:#8b949e;margin:0 8px;">클릭 {pg['clicks']:,} · 노출 {pg['impressions']:,}</span>
-                                        <span style="color:#58a6ff;">{pg['url'][:80]}</span>
+                                        <span style="color:#94a3b8;margin:0 8px;">클릭 {pg['clicks']:,} · 노출 {pg['impressions']:,}</span>
+                                        <span style="color:#818cf8;">{pg['url'][:80]}</span>
                                     </div>
                                     """, unsafe_allow_html=True)
                                 st.markdown("")
@@ -1970,13 +2131,13 @@ def render_insights(project):
                     if low_hanging:
                         with st.expander(f"🎯 Low-Hanging Fruit — {len(low_hanging)}개 기회 키워드", expanded=False):
                             st.markdown("""
-                            <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;margin-bottom:12px;font-size:.85rem;color:#8b949e;">
+                            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:12px;margin-bottom:12px;font-size:.85rem;color:#94a3b8;">
                                 💡 조금만 최적화하면 순위와 클릭을 크게 올릴 수 있는 키워드입니다. Title/Description 개선, 콘텐츠 보강으로 빠른 성과를 얻으세요.
                             </div>
                             """, unsafe_allow_html=True)
                             for lh in low_hanging[:20]:
                                 is_low_ctr = lh.get("type") == "low_ctr"
-                                badge = '<span style="background:#d2992222;color:#d29922;padding:2px 6px;border-radius:4px;font-size:.72rem;">CTR 개선</span>' if is_low_ctr else '<span style="background:#58a6ff22;color:#58a6ff;padding:2px 6px;border-radius:4px;font-size:.72rem;">순위 상승 가능</span>'
+                                badge = '<span style="background:rgba(245,158,11,.1);color:#f59e0b;padding:2px 6px;border-radius:4px;font-size:.72rem;">CTR 개선</span>' if is_low_ctr else '<span style="background:rgba(99,102,241,.12);color:#818cf8;padding:2px 6px;border-radius:4px;font-size:.72rem;">순위 상승 가능</span>'
                                 st.markdown(f"""
                                 <div class="insight-card new-issue">
                                     <div class="insight-title">{badge} {lh['query']}</div>
@@ -2147,7 +2308,7 @@ def render_insights(project):
             with st.expander("🔍 Search Console 미리보기 (연동 시 제공)", expanded=False):
                 st.markdown("""
                 <div style="opacity:0.6;">
-                <p style="color:#e6edf3;font-weight:600;margin-bottom:12px;">Search Console을 연동하면 다음 데이터를 확인할 수 있습니다:</p>
+                <p style="color:#e2e8f0;font-weight:600;margin-bottom:12px;">Search Console을 연동하면 다음 데이터를 확인할 수 있습니다:</p>
                 </div>
                 """, unsafe_allow_html=True)
                 demo_cols = st.columns(4)
@@ -2158,14 +2319,14 @@ def render_insights(project):
                 st.markdown("""
                 <div style="opacity:0.6;">
                 <p style="font-size:0.85rem;margin-top:8px;"><strong>상위 키워드 (예시)</strong></p>
-                <ul style="font-size:0.82rem;color:#8b949e;">
+                <ul style="font-size:0.82rem;color:#94a3b8;">
                     <li><strong>SEO 최적화 방법</strong> — 클릭 312 · 노출 8,420</li>
                     <li><strong>메타 태그 작성법</strong> — 클릭 198 · 노출 5,130</li>
                     <li><strong>사이트맵 제출</strong> — 클릭 145 · 노출 3,890</li>
                     <li><strong>구조화 데이터 적용</strong> — 클릭 89 · 노출 2,760</li>
                     <li><strong>페이지 속도 개선</strong> — 클릭 76 · 노출 2,100</li>
                 </ul>
-                <p style="font-size:0.82rem;color:#d29922;margin-top:12px;">💡 '서치콘솔' 탭에서 Google Search Console을 연동하세요.</p>
+                <p style="font-size:0.82rem;color:#f59e0b;margin-top:12px;">💡 '서치콘솔' 탭에서 Google Search Console을 연동하세요.</p>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -2210,14 +2371,14 @@ def render_insights(project):
                     lcp = ps.get("lcp", 0)
                     cls_val = ps.get("cls", 0)
                     fid = ps.get("fid", ps.get("inp", 0))
-                    s_color = "#3fb950" if score_pct >= 90 else "#d29922" if score_pct >= 50 else "#f85149"
+                    s_color = "#22c55e" if score_pct >= 90 else "#f59e0b" if score_pct >= 50 else "#ef4444"
                     st.markdown(f"""
-                    <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;margin-bottom:8px;">
+                    <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:12px;margin-bottom:8px;">
                         <div style="display:flex;justify-content:space-between;align-items:center;">
-                            <span style="color:#e6edf3;font-size:0.85rem;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{url}">{url}</span>
+                            <span style="color:#e2e8f0;font-size:0.85rem;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{url}">{url}</span>
                             <span style="color:{s_color};font-weight:700;font-size:1.1rem;">{score_pct}</span>
                         </div>
-                        <div style="display:flex;gap:16px;margin-top:6px;font-size:0.78rem;color:#8b949e;">
+                        <div style="display:flex;gap:16px;margin-top:6px;font-size:0.78rem;color:#94a3b8;">
                             <span>LCP: {lcp:.1f}s</span>
                             <span>CLS: {cls_val:.3f}</span>
                             <span>FID/INP: {fid}ms</span>
@@ -2237,14 +2398,14 @@ def render_insights(project):
                 ]
                 st.markdown('<div style="opacity:0.6;">', unsafe_allow_html=True)
                 for pg in example_pages:
-                    s_color = "#3fb950" if pg["score"] >= 90 else "#d29922" if pg["score"] >= 50 else "#f85149"
+                    s_color = "#22c55e" if pg["score"] >= 90 else "#f59e0b" if pg["score"] >= 50 else "#ef4444"
                     st.markdown(f"""
-                    <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;margin-bottom:8px;">
+                    <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:12px;margin-bottom:8px;">
                         <div style="display:flex;justify-content:space-between;align-items:center;">
-                            <span style="color:#e6edf3;font-size:0.85rem;">{pg["url"]}</span>
+                            <span style="color:#e2e8f0;font-size:0.85rem;">{pg["url"]}</span>
                             <span style="color:{s_color};font-weight:700;font-size:1.1rem;">{pg["score"]}</span>
                         </div>
-                        <div style="display:flex;gap:16px;margin-top:6px;font-size:0.78rem;color:#8b949e;">
+                        <div style="display:flex;gap:16px;margin-top:6px;font-size:0.78rem;color:#94a3b8;">
                             <span>LCP: {pg["lcp"]}</span>
                             <span>CLS: {pg["cls"]}</span>
                             <span>FID: {pg["fid"]}</span>
@@ -2253,7 +2414,7 @@ def render_insights(project):
                     """, unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
                 st.markdown("""
-                <p style="font-size:0.82rem;color:#d29922;margin-top:8px;">💡 '사이트 속도' 탭에서 PageSpeed 측정을 실행하세요.</p>
+                <p style="font-size:0.82rem;color:#f59e0b;margin-top:8px;">💡 '사이트 속도' 탭에서 PageSpeed 측정을 실행하세요.</p>
                 """, unsafe_allow_html=True)
 
 
@@ -2303,20 +2464,20 @@ def render_ai_geo(project):
                         status = info["status"]
                         if status == "차단":
                             icon = "🔴"
-                            color = "#f85149"
+                            color = "#ef4444"
                         elif status == "허용":
                             icon = "🟢"
-                            color = "#3fb950"
+                            color = "#22c55e"
                         else:
                             icon = "⚪"
                             color = "#8b949e"
 
                         st.markdown(f"""
-                        <div style="display:flex;align-items:center;gap:12px;padding:8px 12px;background:#0d1117;border:1px solid #21262d;border-radius:6px;margin-bottom:4px;">
+                        <div style="display:flex;align-items:center;gap:12px;padding:8px 12px;background:#111827;border:1px solid #1e293b;border-radius:6px;margin-bottom:4px;">
                             <span style="font-size:1.1rem;">{icon}</span>
                             <div style="flex:1;">
-                                <span style="color:#e6edf3;font-weight:600;">{bot_name}</span>
-                                <span style="color:#8b949e;font-size:.82rem;margin-left:8px;">{info['company']}</span>
+                                <span style="color:#e2e8f0;font-weight:600;">{bot_name}</span>
+                                <span style="color:#94a3b8;font-size:.82rem;margin-left:8px;">{info['company']}</span>
                             </div>
                             <span style="color:{color};font-weight:600;font-size:.85rem;">{status}</span>
                         </div>
@@ -2365,10 +2526,10 @@ def render_ai_geo(project):
         else:
             st.warning("❌ llms.txt 파일이 없습니다.")
             st.markdown("""
-            <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;margin-top:8px;">
-                <p style="color:#e6edf3;font-weight:600;margin-bottom:8px;">llms.txt 만들기 가이드</p>
-                <p style="color:#8b949e;font-size:.85rem;margin-bottom:12px;">사이트 루트에 <code>/llms.txt</code> 파일을 만들면 AI가 사이트를 더 잘 이해합니다.</p>
-                <pre style="background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:12px;font-size:.82rem;color:#e6edf3;overflow-x:auto;"># 사이트 이름
+            <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:16px;margin-top:8px;">
+                <p style="color:#e2e8f0;font-weight:600;margin-bottom:8px;">llms.txt 만들기 가이드</p>
+                <p style="color:#94a3b8;font-size:.85rem;margin-bottom:12px;">사이트 루트에 <code>/llms.txt</code> 파일을 만들면 AI가 사이트를 더 잘 이해합니다.</p>
+                <pre style="background:#111827;border:1px solid #1e293b;border-radius:6px;padding:12px;font-size:.82rem;color:#e2e8f0;overflow-x:auto;"># 사이트 이름
 
 > 사이트에 대한 간단한 설명
 
@@ -2378,7 +2539,7 @@ def render_ai_geo(project):
 
 ## 카테고리
 - [카테고리명](URL): 설명</pre>
-                <p style="color:#d29922;font-size:.82rem;margin-top:8px;">💡 <a href="https://llmstxt.org/" target="_blank" style="color:#58a6ff;">llms.txt 공식 사양</a> 참고</p>
+                <p style="color:#f59e0b;font-size:.82rem;margin-top:8px;">💡 <a href="https://llmstxt.org/" target="_blank" style="color:#818cf8;">llms.txt 공식 사양</a> 참고</p>
             </div>
             """, unsafe_allow_html=True)
 
@@ -2441,19 +2602,19 @@ def render_ai_geo(project):
                 # 종합 점수 카드
                 sc1, sc2 = st.columns(2)
                 with sc1:
-                    eeat_color = "#3fb950" if avg_eeat >= 60 else "#d29922" if avg_eeat >= 40 else "#f85149"
+                    eeat_color = "#22c55e" if avg_eeat >= 60 else "#f59e0b" if avg_eeat >= 40 else "#ef4444"
                     st.markdown(f"""
-                    <div style="text-align:center;background:#161b22;border:1px solid #30363d;border-radius:12px;padding:24px;">
-                        <div style="font-size:.85rem;color:#8b949e;margin-bottom:8px;">사이트 E-E-A-T 점수</div>
+                    <div style="text-align:center;background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:24px;">
+                        <div style="font-size:.85rem;color:#94a3b8;margin-bottom:8px;">사이트 E-E-A-T 점수</div>
                         <div class="score-circle {'score-good' if avg_eeat >= 60 else 'score-medium' if avg_eeat >= 40 else 'score-bad'}" style="width:100px;height:100px;font-size:1.8rem;margin:0 auto;">{avg_eeat}</div>
                         <div style="color:{eeat_color};font-weight:600;margin-top:8px;">{'우수' if avg_eeat >= 60 else '보통' if avg_eeat >= 40 else '개선 필요'}</div>
                     </div>
                     """, unsafe_allow_html=True)
                 with sc2:
-                    ai_color = "#3fb950" if avg_ai >= 70 else "#d29922" if avg_ai >= 50 else "#f85149"
+                    ai_color = "#22c55e" if avg_ai >= 70 else "#f59e0b" if avg_ai >= 50 else "#ef4444"
                     st.markdown(f"""
-                    <div style="text-align:center;background:#161b22;border:1px solid #30363d;border-radius:12px;padding:24px;">
-                        <div style="font-size:.85rem;color:#8b949e;margin-bottom:8px;">AI 검색 준비도</div>
+                    <div style="text-align:center;background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:24px;">
+                        <div style="font-size:.85rem;color:#94a3b8;margin-bottom:8px;">AI 검색 준비도</div>
                         <div class="score-circle {'score-good' if avg_ai >= 70 else 'score-medium' if avg_ai >= 50 else 'score-bad'}" style="width:100px;height:100px;font-size:1.8rem;margin:0 auto;">{avg_ai}</div>
                         <div style="color:{ai_color};font-weight:600;margin-top:8px;">{'AI-Ready' if avg_ai >= 70 else '개선 필요' if avg_ai >= 50 else '최적화 필요'}</div>
                     </div>
@@ -2468,10 +2629,10 @@ def render_ai_geo(project):
                         grade_color = es.get("color", "#8b949e")
                         url_short = urlparse(es["url"]).path or "/"
                         st.markdown(f"""
-                        <div style="display:flex;align-items:center;gap:12px;padding:8px 12px;background:#0d1117;border:1px solid #21262d;border-radius:6px;margin-bottom:4px;">
+                        <div style="display:flex;align-items:center;gap:12px;padding:8px 12px;background:#111827;border:1px solid #1e293b;border-radius:6px;margin-bottom:4px;">
                             <span style="color:{grade_color};font-weight:800;font-size:1.1rem;min-width:30px;">{es['grade']}</span>
                             <span style="color:{grade_color};font-weight:700;min-width:40px;">{es['score']}</span>
-                            <span style="color:#58a6ff;font-size:.85rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{es['url']}">{url_short}</span>
+                            <span style="color:#818cf8;font-size:.85rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{es['url']}">{url_short}</span>
                         </div>
                         """, unsafe_allow_html=True)
 
@@ -2489,12 +2650,12 @@ def render_ai_geo(project):
                     for ais in ai_sorted[:30]:
                         url_short = urlparse(ais["url"]).path or "/"
                         sc_val = ais["score"]
-                        sc_color = "#3fb950" if sc_val >= 70 else "#d29922" if sc_val >= 50 else "#f85149"
+                        sc_color = "#22c55e" if sc_val >= 70 else "#f59e0b" if sc_val >= 50 else "#ef4444"
                         st.markdown(f"""
-                        <div style="display:flex;align-items:center;gap:12px;padding:8px 12px;background:#0d1117;border:1px solid #21262d;border-radius:6px;margin-bottom:4px;">
+                        <div style="display:flex;align-items:center;gap:12px;padding:8px 12px;background:#111827;border:1px solid #1e293b;border-radius:6px;margin-bottom:4px;">
                             <span style="color:{sc_color};font-weight:700;min-width:40px;">{sc_val}</span>
-                            <span style="color:#58a6ff;font-size:.85rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{ais['url']}">{url_short}</span>
-                            <span style="color:#8b949e;font-size:.78rem;">{ais.get('grade_kr', '')}</span>
+                            <span style="color:#818cf8;font-size:.85rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{ais['url']}">{url_short}</span>
+                            <span style="color:#94a3b8;font-size:.78rem;">{ais.get('grade_kr', '')}</span>
                         </div>
                         """, unsafe_allow_html=True)
 
@@ -2508,14 +2669,14 @@ def render_ai_geo(project):
                                 dim_score = dim_data.get("score", 0)
                                 dim_max = dim_data.get("max", 1)
                                 dim_pct = (dim_score / dim_max * 100) if dim_max > 0 else 0
-                                dim_color = "#3fb950" if dim_pct >= 70 else "#d29922" if dim_pct >= 50 else "#f85149"
+                                dim_color = "#22c55e" if dim_pct >= 70 else "#f59e0b" if dim_pct >= 50 else "#ef4444"
                                 st.markdown(f"""
                                 <div style="margin-bottom:6px;">
                                     <div style="display:flex;justify-content:space-between;align-items:center;">
-                                        <span style="color:#e6edf3;font-weight:600;font-size:.85rem;">{dim_name}</span>
+                                        <span style="color:#e2e8f0;font-weight:600;font-size:.85rem;">{dim_name}</span>
                                         <span style="color:{dim_color};font-weight:700;font-size:.85rem;">{dim_score}/{dim_max}</span>
                                     </div>
-                                    <div style="background:#21262d;border-radius:3px;height:4px;margin:3px 0;">
+                                    <div style="background:#1e293b;border-radius:3px;height:4px;margin:3px 0;">
                                         <div style="background:{dim_color};height:100%;width:{dim_pct}%;border-radius:3px;"></div>
                                     </div>
                                 </div>
@@ -2679,19 +2840,19 @@ def render_ai_geo(project):
             st.markdown("**페이지별 콘텐츠 최적화 점수**")
             for cp in content_pages[:50]:
                 sc = cp["score"]
-                sc_color = "#3fb950" if sc >= 70 else "#d29922" if sc >= 40 else "#f85149"
+                sc_color = "#22c55e" if sc >= 70 else "#f59e0b" if sc >= 40 else "#ef4444"
                 url_short = urlparse(cp["url"]).path or "/"
                 passed = sum(1 for _, ok in cp["items"] if ok)
                 total_checks = len(cp["items"])
                 item_icons = "".join("✅" if ok else "❌" for _, ok in cp["items"])
 
                 st.markdown(f"""
-                <div style="background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:10px 14px;margin-bottom:4px;">
+                <div style="background:#111827;border:1px solid #1e293b;border-radius:6px;padding:10px 14px;margin-bottom:4px;">
                     <div style="display:flex;align-items:center;gap:12px;">
                         <span style="color:{sc_color};font-weight:800;font-size:1.1rem;min-width:36px;">{sc}</span>
                         <div style="flex:1;overflow:hidden;">
-                            <div style="color:#58a6ff;font-size:.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{cp['url']}">{url_short}</div>
-                            <div style="color:#8b949e;font-size:.75rem;margin-top:2px;">키워드: {cp['keyword'][:40]} · {cp['words']}단어 · {passed}/{total_checks} 항목 통과</div>
+                            <div style="color:#818cf8;font-size:.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{cp['url']}">{url_short}</div>
+                            <div style="color:#94a3b8;font-size:.75rem;margin-top:2px;">키워드: {cp['keyword'][:40]} · {cp['words']}단어 · {passed}/{total_checks} 항목 통과</div>
                         </div>
                         <span style="font-size:.7rem;letter-spacing:-1px;">{item_icons}</span>
                     </div>
@@ -2722,19 +2883,19 @@ def render_ai_geo(project):
                 if co_result:
                     score = co_result.get("score", 0)
                     if score >= 80:
-                        score_color, score_label = "#3fb950", "우수"
+                        score_color, score_label = "#22c55e", "우수"
                     elif score >= 60:
-                        score_color, score_label = "#58a6ff", "양호"
+                        score_color, score_label = "#818cf8", "양호"
                     elif score >= 40:
-                        score_color, score_label = "#d29922", "보통"
+                        score_color, score_label = "#f59e0b", "보통"
                     else:
-                        score_color, score_label = "#f85149", "개선 필요"
+                        score_color, score_label = "#ef4444", "개선 필요"
 
                     st.markdown(f"""
                     <div style="text-align:center;margin:16px 0;">
                         <div class="score-circle {'score-good' if score >= 60 else 'score-medium' if score >= 40 else 'score-bad'}" style="width:120px;height:120px;font-size:2rem;margin:0 auto;">{score}</div>
                         <p style="color:{score_color};font-weight:600;font-size:1.1rem;margin-top:8px;">콘텐츠 최적화 점수: {score_label}</p>
-                        <p style="color:#8b949e;font-size:.82rem;">키워드: "{co_keyword}" · {co_result.get('word_count', 0)}단어 · 밀도 {co_result.get('keyword_density', 0)}%</p>
+                        <p style="color:#94a3b8;font-size:.82rem;">키워드: "{co_keyword}" · {co_result.get('word_count', 0)}단어 · 밀도 {co_result.get('keyword_density', 0)}%</p>
                     </div>
                     """, unsafe_allow_html=True)
 
@@ -2743,14 +2904,14 @@ def render_ai_geo(project):
                         st.markdown("**진단 항목**")
                         for check in checks:
                             icon = "✅" if check["pass"] else "❌"
-                            bg = "#3fb95015" if check["pass"] else "#f8514915"
-                            border = "#3fb95040" if check["pass"] else "#f8514940"
+                            bg = "rgba(34,197,94,.08)" if check["pass"] else "rgba(239,68,68,.08)"
+                            border = "rgba(34,197,94,.25)" if check["pass"] else "rgba(239,68,68,.25)"
                             st.markdown(f"""
                             <div style="background:{bg};border:1px solid {border};border-radius:6px;padding:8px 14px;margin-bottom:4px;display:flex;align-items:center;gap:10px;">
                                 <span style="font-size:1rem;">{icon}</span>
                                 <div>
-                                    <span style="color:#e6edf3;font-weight:600;font-size:.9rem;">{check['name']}</span>
-                                    <span style="color:#8b949e;font-size:.82rem;margin-left:8px;">{check['detail']}</span>
+                                    <span style="color:#e2e8f0;font-weight:600;font-size:.9rem;">{check['name']}</span>
+                                    <span style="color:#94a3b8;font-size:.82rem;margin-left:8px;">{check['detail']}</span>
                                 </div>
                             </div>
                             """, unsafe_allow_html=True)
@@ -2760,9 +2921,9 @@ def render_ai_geo(project):
                         st.markdown("**개선 권장사항**")
                         for i, rec in enumerate(recs, 1):
                             st.markdown(f"""
-                            <div style="background:#161b22;border:1px solid #30363d;border-left:3px solid #d29922;border-radius:6px;padding:10px 14px;margin-bottom:4px;">
-                                <span style="color:#d29922;font-weight:700;">{i}.</span>
-                                <span style="color:#e6edf3;font-size:.9rem;margin-left:6px;">{rec}</span>
+                            <div style="background:#0f172a;border:1px solid #1e293b;border-left:3px solid #d29922;border-radius:6px;padding:10px 14px;margin-bottom:4px;">
+                                <span style="color:#f59e0b;font-weight:700;">{i}.</span>
+                                <span style="color:#e2e8f0;font-size:.9rem;margin-left:6px;">{rec}</span>
                             </div>
                             """, unsafe_allow_html=True)
 
@@ -3057,19 +3218,19 @@ def render_project_settings(project):
         st.markdown("#### ⏱️ 크롤링 속도 설정")
 
         st.markdown("""
-        <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;margin-bottom:16px;">
-            <p style="color:#e6edf3;font-weight:600;margin-bottom:8px;">💡 크롤링 속도 가이드</p>
-            <table style="width:100%;color:#8b949e;font-size:.85rem;border-collapse:collapse;">
-                <tr style="border-bottom:1px solid #30363d;">
-                    <td style="padding:6px 8px;font-weight:600;color:#3fb950;">0.5초 이상 (권장)</td>
+        <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:16px;margin-bottom:16px;">
+            <p style="color:#e2e8f0;font-weight:600;margin-bottom:8px;">💡 크롤링 속도 가이드</p>
+            <table style="width:100%;color:#94a3b8;font-size:.85rem;border-collapse:collapse;">
+                <tr style="border-bottom:1px solid #1e293b;">
+                    <td style="padding:6px 8px;font-weight:600;color:#22c55e;">0.5초 이상 (권장)</td>
                     <td style="padding:6px 8px;">서버에 부담 없이 안전하게 크롤링</td>
                 </tr>
-                <tr style="border-bottom:1px solid #30363d;">
-                    <td style="padding:6px 8px;font-weight:600;color:#d29922;">0.3~0.5초</td>
+                <tr style="border-bottom:1px solid #1e293b;">
+                    <td style="padding:6px 8px;font-weight:600;color:#f59e0b;">0.3~0.5초</td>
                     <td style="padding:6px 8px;">소규모 사이트에서는 괜찮으나, 대규모 사이트에서는 주의 필요</td>
                 </tr>
                 <tr>
-                    <td style="padding:6px 8px;font-weight:600;color:#f85149;">0.3초 미만</td>
+                    <td style="padding:6px 8px;font-weight:600;color:#ef4444;">0.3초 미만</td>
                     <td style="padding:6px 8px;">서버에 과부하를 줄 수 있으며, 방화벽에 의해 차단될 수 있음</td>
                 </tr>
             </table>
@@ -3245,13 +3406,13 @@ def render_project_settings(project):
 
     delay_val = float(project.get("crawl_delay") or 0.5)
     if delay_val < 0.5:
-        delay_color = "#f85149"
+        delay_color = "#ef4444"
         delay_status = "빠름 (주의)"
     elif delay_val < 1.0:
-        delay_color = "#d29922"
+        delay_color = "#f59e0b"
         delay_status = "보통"
     else:
-        delay_color = "#3fb950"
+        delay_color = "#22c55e"
         delay_status = "안전"
 
     schedule_val = project.get("schedule") or "manual"
@@ -3262,30 +3423,30 @@ def render_project_settings(project):
     schedule_cls = {"manual": "schedule-manual", "biweekly": "schedule-daily", "weekly": "schedule-weekly"}.get(schedule_val, "schedule-manual")
 
     st.markdown(f"""
-    <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;">
-        <table style="width:100%;color:#e6edf3;font-size:.9rem;border-collapse:collapse;">
-            <tr style="border-bottom:1px solid #30363d;">
-                <td style="padding:8px;color:#8b949e;width:140px;">사이트 URL</td>
-                <td style="padding:8px;color:#58a6ff;">{project['url']}</td>
+    <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:16px;">
+        <table style="width:100%;color:#e2e8f0;font-size:.9rem;border-collapse:collapse;">
+            <tr style="border-bottom:1px solid #1e293b;">
+                <td style="padding:8px;color:#94a3b8;width:140px;">사이트 URL</td>
+                <td style="padding:8px;color:#818cf8;">{project['url']}</td>
             </tr>
-            <tr style="border-bottom:1px solid #30363d;">
-                <td style="padding:8px;color:#8b949e;">크롤링 모드</td>
+            <tr style="border-bottom:1px solid #1e293b;">
+                <td style="padding:8px;color:#94a3b8;">크롤링 모드</td>
                 <td style="padding:8px;">{project['crawl_mode']}</td>
             </tr>
-            <tr style="border-bottom:1px solid #30363d;">
-                <td style="padding:8px;color:#8b949e;">최대 페이지</td>
+            <tr style="border-bottom:1px solid #1e293b;">
+                <td style="padding:8px;color:#94a3b8;">최대 페이지</td>
                 <td style="padding:8px;">{project['max_pages']}</td>
             </tr>
-            <tr style="border-bottom:1px solid #30363d;">
-                <td style="padding:8px;color:#8b949e;">크롤링 딜레이</td>
-                <td style="padding:8px;"><span style="color:{delay_color};font-weight:600;">{delay_val}초</span> <span style="font-size:.8rem;color:#8b949e;">({delay_status})</span></td>
+            <tr style="border-bottom:1px solid #1e293b;">
+                <td style="padding:8px;color:#94a3b8;">크롤링 딜레이</td>
+                <td style="padding:8px;"><span style="color:{delay_color};font-weight:600;">{delay_val}초</span> <span style="font-size:.8rem;color:#94a3b8;">({delay_status})</span></td>
             </tr>
-            <tr style="border-bottom:1px solid #30363d;">
-                <td style="padding:8px;color:#8b949e;">스케줄</td>
+            <tr style="border-bottom:1px solid #1e293b;">
+                <td style="padding:8px;color:#94a3b8;">스케줄</td>
                 <td style="padding:8px;"><span class="{schedule_cls} schedule-badge">{schedule_display}</span></td>
             </tr>
             <tr>
-                <td style="padding:8px;color:#8b949e;">마지막 크롤링</td>
+                <td style="padding:8px;color:#94a3b8;">마지막 크롤링</td>
                 <td style="padding:8px;">{project.get('last_crawl_at', '없음')}</td>
             </tr>
         </table>
@@ -3386,7 +3547,7 @@ def render_search_console(project):
     st.markdown(f"""
     <div class="sc-connected">
         ✅ Search Console 연결됨<br>
-        <span style="color:#8b949e;font-size:.85rem;">사이트: {sc_conn.get('site_url', '')} · 마지막 동기화: {sc_conn.get('last_sync', '없음')}</span>
+        <span style="color:#94a3b8;font-size:.85rem;">사이트: {sc_conn.get('site_url', '')} · 마지막 동기화: {sc_conn.get('last_sync', '없음')}</span>
     </div>
     """, unsafe_allow_html=True)
 
@@ -3658,7 +3819,7 @@ def render_search_console(project):
                     </div>
                     <div class="issue-url">{affected_url}</div>
                     <div class="issue-detail">{explanation.get('description', '')}</div>
-                    <div style="color:#484f58;font-size:.75rem;margin-top:4px;">
+                    <div style="color:#475569;font-size:.75rem;margin-top:4px;">
                         처음 감지: {first_detected} · 최근 감지: {last_detected}
                     </div>
                 </div>
@@ -3823,7 +3984,7 @@ def render_pagespeed(project):
         st.markdown(f"""
         <div style="text-align:center;margin:12px 0;">
             <div class="score-circle {score_cls}" style="width:100px;height:100px;font-size:1.8rem;margin:0 auto;">{score_pct}</div>
-            <p style="color:#8b949e;font-size:.82rem;">퍼포먼스 점수</p>
+            <p style="color:#94a3b8;font-size:.82rem;">퍼포먼스 점수</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -4015,7 +4176,7 @@ def render_page_changes(project):
         <div class="change-card">
             <div style="display:flex;justify-content:space-between;align-items:center;">
                 <span class="change-field">{field_kr}</span>
-                <span style="color:#484f58;font-size:.72rem;">{detected}</span>
+                <span style="color:#475569;font-size:.72rem;">{detected}</span>
             </div>
             <div class="change-old">이전: {old_display}</div>
             <div class="change-new">변경: {new_display}</div>
