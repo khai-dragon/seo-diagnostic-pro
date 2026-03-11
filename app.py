@@ -1150,7 +1150,7 @@ def render_crawl_execution(project):
             # Clean pages for JSON storage (remove non-serializable items)
             def clean_page(p):
                 return {k: v for k, v in p.items() if not k.startswith("_") or k in (
-                    "_schema", "_eeat", "_tech", "_security", "_perf", "_content"
+                    "_schema", "_eeat", "_tech", "_security", "_perf", "_content", "_internal_links"
                 )}
 
             pages_json = json.dumps([clean_page(p) for p in pages], ensure_ascii=False, default=str)
