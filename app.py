@@ -880,8 +880,8 @@ def render_project_detail():
             return
 
     # Tabs
-    tab_insights, tab_aigeo, tab_crawl, tab_results, tab_history, tab_sc, tab_speed, tab_changes, tab_settings = st.tabs([
-        "💡 인사이트", "🤖 AI/GEO", "🚀 크롤링 실행", "📊 결과 분석", "📈 히스토리",
+    tab_insights, tab_aigeo, tab_results, tab_history, tab_sc, tab_speed, tab_changes, tab_settings = st.tabs([
+        "💡 인사이트", "🤖 AI/GEO", "📊 결과 분석", "📈 히스토리",
         "🔍 서치콘솔", "⚡ 사이트 속도", "📝 변경 히스토리", "⚙️ 설정"
     ])
 
@@ -892,10 +892,6 @@ def render_project_detail():
     # ── AI/GEO 탭 ──
     with tab_aigeo:
         render_ai_geo(project)
-
-    # ── 크롤링 실행 탭 ──
-    with tab_crawl:
-        render_crawl_execution(project)
 
     # ── 결과 분석 탭 ──
     with tab_results:
@@ -917,7 +913,7 @@ def render_project_detail():
     with tab_changes:
         render_page_changes(project)
 
-    # ── 설정 탭 ──
+    # ── 설정 탭 (크롤링 실행 포함) ──
     with tab_settings:
         render_project_settings(project)
 
@@ -927,7 +923,7 @@ def render_project_overview(project):
     latest = db.get_latest_crawl(project["id"])
 
     if not latest:
-        st.info("아직 크롤링 기록이 없습니다. '크롤링 실행' 탭에서 첫 번째 크롤링을 시작하세요.")
+        st.info("아직 크롤링 기록이 없습니다. '설정' 탭에서 첫 번째 크롤링을 시작하세요.")
         return
 
     total_pages = latest.get("total_pages", 0)
@@ -953,26 +949,60 @@ def render_project_overview(project):
         schema_count = sum(1 for p in pages if p.get("Has Schema"))
         https_count = sum(1 for p in pages if p.get("HTTPS"))
 
-    # ── 건강 점수 계산 ──
-    health_score = 100
+    # ── 건강 점수 계산 (비율 기반, PageSpeed 방식) ──
+    # 6개 카테고리 × 가중치 = 100점 만점
+    # 각 카테고리는 0~1 비율로 계산 후 가중치를 곱함
+    health_breakdown = {}
+
     if total_pages > 0:
-        # HIGH 이슈: -5점/건, MEDIUM: -2점/건, LOW: -0.5점/건
-        health_score -= high * 5
-        health_score -= med * 2
-        health_score -= low * 0.5
-        # 로딩 시간 감점 (3초 초과 시 감점)
-        if avg_load > 3:
-            health_score -= min((avg_load - 3) * 5, 15)
-        # HTTPS 비율 감점
-        if total_pages > 0:
-            https_ratio = https_count / total_pages
-            if https_ratio < 1.0:
-                health_score -= (1.0 - https_ratio) * 10
-        # Schema 적용 감점
-        if total_pages > 0:
-            schema_ratio = schema_count / total_pages
-            if schema_ratio < 0.5:
-                health_score -= (0.5 - schema_ratio) * 10
+        # 1. 치명적 이슈 비율 (30점) — HIGH 이슈가 있는 페이지 비율
+        high_ratio = min(high / total_pages, 1.0)
+        cat1_score = round((1 - high_ratio) * 30)
+        health_breakdown["치명적 이슈"] = {"score": cat1_score, "max": 30,
+            "detail": f"HIGH 이슈 {high}건 / {total_pages} 페이지 (비율 {high_ratio*100:.0f}%)"}
+
+        # 2. 중요 이슈 비율 (20점) — MEDIUM 이슈 비율 (페이지당 평균)
+        med_per_page = med / total_pages
+        med_ratio = min(med_per_page / 3.0, 1.0)  # 페이지당 3건 이상이면 0점
+        cat2_score = round((1 - med_ratio) * 20)
+        health_breakdown["중요 이슈"] = {"score": cat2_score, "max": 20,
+            "detail": f"MEDIUM 이슈 {med}건 (페이지당 평균 {med_per_page:.1f}건)"}
+
+        # 3. 경미한 이슈 비율 (10점) — LOW 이슈 비율
+        low_per_page = low / total_pages
+        low_ratio = min(low_per_page / 5.0, 1.0)  # 페이지당 5건 이상이면 0점
+        cat3_score = round((1 - low_ratio) * 10)
+        health_breakdown["경미한 이슈"] = {"score": cat3_score, "max": 10,
+            "detail": f"LOW 이슈 {low}건 (페이지당 평균 {low_per_page:.1f}건)"}
+
+        # 4. 페이지 속도 (15점)
+        if avg_load <= 1.5:
+            cat4_score = 15
+        elif avg_load <= 3.0:
+            cat4_score = round(15 * (1 - (avg_load - 1.5) / 3.0))
+        elif avg_load <= 6.0:
+            cat4_score = round(5 * (1 - (avg_load - 3.0) / 3.0))
+        else:
+            cat4_score = 0
+        cat4_score = max(0, cat4_score)
+        health_breakdown["페이지 속도"] = {"score": cat4_score, "max": 15,
+            "detail": f"평균 로딩 시간 {avg_load}초"}
+
+        # 5. HTTPS 보안 (15점)
+        https_ratio = https_count / total_pages
+        cat5_score = round(https_ratio * 15)
+        health_breakdown["HTTPS 보안"] = {"score": cat5_score, "max": 15,
+            "detail": f"HTTPS 적용 {https_count}/{total_pages} ({https_ratio*100:.0f}%)"}
+
+        # 6. 구조화 데이터 (10점)
+        schema_ratio = schema_count / total_pages
+        cat6_score = round(min(schema_ratio / 0.7, 1.0) * 10)  # 70% 이상이면 만점
+        health_breakdown["구조화 데이터"] = {"score": cat6_score, "max": 10,
+            "detail": f"Schema 적용 {schema_count}/{total_pages} ({schema_ratio*100:.0f}%)"}
+
+        health_score = sum(v["score"] for v in health_breakdown.values())
+    else:
+        health_score = 0
     health_score = max(0, min(100, int(health_score)))
 
     if health_score >= 80:
@@ -993,9 +1023,32 @@ def render_project_overview(project):
     <div style="text-align:center;margin:20px 0;">
         <div class="score-circle {health_cls}" style="width:140px;height:140px;font-size:2.4rem;margin:0 auto;">{health_score}</div>
         <p style="color:{health_color};font-weight:600;font-size:1.1rem;margin-top:8px;">사이트 건강 점수: {health_label}</p>
-        <p style="color:#8b949e;font-size:.82rem;">HIGH -{high*5}점 · MEDIUM -{med*2}점 · LOW -{int(low*0.5)}점</p>
     </div>
     """, unsafe_allow_html=True)
+
+    # Health score breakdown (PageSpeed style)
+    if health_breakdown:
+        breakdown_html = ""
+        for cat_name, cat_data in health_breakdown.items():
+            pct = (cat_data["score"] / cat_data["max"] * 100) if cat_data["max"] > 0 else 0
+            bar_color = "#3fb950" if pct >= 80 else "#d29922" if pct >= 50 else "#f85149"
+            breakdown_html += f"""
+            <div style="margin-bottom:8px;">
+                <div style="display:flex;justify-content:space-between;margin-bottom:2px;">
+                    <span style="color:#e6edf3;font-size:.82rem;font-weight:600;">{cat_name}</span>
+                    <span style="color:{bar_color};font-size:.82rem;font-weight:700;">{cat_data['score']}/{cat_data['max']}</span>
+                </div>
+                <div style="background:#21262d;border-radius:4px;height:6px;overflow:hidden;">
+                    <div style="background:{bar_color};height:100%;width:{pct}%;border-radius:4px;transition:width .3s;"></div>
+                </div>
+                <div style="color:#8b949e;font-size:.72rem;margin-top:1px;">{cat_data['detail']}</div>
+            </div>"""
+        st.markdown(f"""
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;margin-bottom:16px;">
+            <p style="color:#8b949e;font-size:.78rem;margin-bottom:12px;font-weight:600;">점수 산출 근거</p>
+            {breakdown_html}
+        </div>
+        """, unsafe_allow_html=True)
 
     card_data = [
         ("총 페이지", total_pages, "", "전체 수집된 페이지 수"),
@@ -1023,7 +1076,6 @@ def render_project_overview(project):
 
 # ── 크롤링 실행 ──────────────────────────────────────────────────────────────
 def render_crawl_execution(project):
-    st.markdown("### 🚀 크롤링 실행")
     st.markdown(f"""
     - **사이트**: {project['url']}
     - **모드**: {project['crawl_mode']}
@@ -1219,7 +1271,7 @@ def render_results_analysis(project):
     latest = db.get_latest_crawl(project["id"])
 
     if not latest:
-        st.info("아직 크롤링 결과가 없습니다. '크롤링 실행' 탭에서 크롤링을 시작하세요.")
+        st.info("아직 크롤링 결과가 없습니다. '설정' 탭에서 크롤링을 시작하세요.")
         return
 
     # Load data from JSON
@@ -2350,8 +2402,9 @@ def render_ai_geo(project):
     st.markdown("#### 📊 페이지별 E-E-A-T 점수 & AI 준비도")
 
     latest = db.get_latest_crawl(project_id)
+    pages = []
     if not latest:
-        st.info("크롤링 데이터가 없습니다. '크롤링 실행' 탭에서 먼저 크롤링을 실행하세요.")
+        st.info("크롤링 데이터가 없습니다. '설정' 탭에서 먼저 크롤링을 실행하세요.")
     else:
         try:
             pages_raw = latest.get("pages_json", "[]")
@@ -2458,91 +2511,292 @@ def render_ai_geo(project):
                         </div>
                         """, unsafe_allow_html=True)
 
+                    # 가장 점수 낮은 페이지의 상세 진단
+                    if ai_sorted:
+                        worst_ai = ai_sorted[0]
+                        st.markdown(f"**가장 개선이 필요한 페이지:** `{urlparse(worst_ai['url']).path}`")
+                        ai_dims = worst_ai.get("details", {})
+                        if ai_dims:
+                            for dim_name, dim_data in ai_dims.items():
+                                dim_score = dim_data.get("score", 0)
+                                dim_max = dim_data.get("max", 1)
+                                dim_pct = (dim_score / dim_max * 100) if dim_max > 0 else 0
+                                dim_color = "#3fb950" if dim_pct >= 70 else "#d29922" if dim_pct >= 50 else "#f85149"
+                                st.markdown(f"""
+                                <div style="margin-bottom:6px;">
+                                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                                        <span style="color:#e6edf3;font-weight:600;font-size:.85rem;">{dim_name}</span>
+                                        <span style="color:{dim_color};font-weight:700;font-size:.85rem;">{dim_score}/{dim_max}</span>
+                                    </div>
+                                    <div style="background:#21262d;border-radius:3px;height:4px;margin:3px 0;">
+                                        <div style="background:{dim_color};height:100%;width:{dim_pct}%;border-radius:3px;"></div>
+                                    </div>
+                                </div>
+                                """, unsafe_allow_html=True)
+                                for item in dim_data.get("items", []):
+                                    st.markdown(f"  - {item}")
+
     # ═══════════════════════════════════════════════════════════════════════
-    # 섹션 4: 콘텐츠 최적화 분석 (키워드 기반)
+    # 섹션 4: 콘텐츠 최적화 분석 (키워드 기반 — 자동 감지)
     # ═══════════════════════════════════════════════════════════════════════
     st.markdown("---")
     st.markdown("#### 📝 콘텐츠 최적화 분석")
-    st.caption("특정 키워드에 대한 페이지의 최적화 수준을 분석합니다.")
+    st.caption("각 페이지의 핵심 키워드를 자동 감지하고, 키워드 최적화 수준을 분석합니다. 키워드는 수정 가능합니다.")
 
-    with st.form("content_opt_form", clear_on_submit=False):
-        co_cols = st.columns([3, 2])
-        with co_cols[0]:
-            co_url = st.text_input("분석할 페이지 URL", placeholder=f"{project_url}/blog/seo-guide", key="co_url")
-        with co_cols[1]:
-            co_keyword = st.text_input("타겟 키워드", placeholder="SEO 최적화 방법", key="co_keyword")
-        co_submit = st.form_submit_button("🔍 콘텐츠 분석 시작", use_container_width=True, type="primary")
+    if pages:
+        # 페이지별 자동 키워드 추출 및 간이 점수 계산
+        content_pages = []
+        for p in pages:
+            if p.get("Status") != 200:
+                continue
+            url = p.get("URL", "")
+            h1 = (p.get("H1") or "").strip()
+            title = (p.get("Title") or "").strip()
+            words = p.get("Words", 0)
+            if words < 50:
+                continue  # 너무 짧은 페이지 제외
 
-    if co_submit and co_url and co_keyword:
-        with st.spinner(f"'{co_keyword}' 키워드로 페이지 분석 중..."):
-            co_result = crawler.analyze_content_optimization(co_url.strip(), co_keyword.strip())
+            # 자동 키워드: H1 우선, 없으면 Title
+            auto_keyword = h1 if h1 else title
+            # 키워드가 너무 길면 앞부분만
+            if len(auto_keyword) > 50:
+                auto_keyword = auto_keyword[:50]
 
-        if co_result:
-            # 점수 표시
-            score = co_result.get("score", 0)
-            if score >= 80:
-                score_color, score_label = "#3fb950", "우수"
-            elif score >= 60:
-                score_color, score_label = "#58a6ff", "양호"
-            elif score >= 40:
-                score_color, score_label = "#d29922", "보통"
+            # 간이 콘텐츠 점수 (저장된 데이터 기반)
+            co_score = 0
+            co_items = []
+
+            # Title에 H1 키워드 포함 여부
+            kw_lower = auto_keyword.lower()
+            if kw_lower and kw_lower in title.lower():
+                co_score += 15
+                co_items.append(("Title 키워드", True))
             else:
-                score_color, score_label = "#f85149", "개선 필요"
+                co_items.append(("Title 키워드", False))
 
-            st.markdown(f"""
-            <div style="text-align:center;margin:16px 0;">
-                <div class="score-circle {'score-good' if score >= 60 else 'score-medium' if score >= 40 else 'score-bad'}" style="width:120px;height:120px;font-size:2rem;margin:0 auto;">{score}</div>
-                <p style="color:{score_color};font-weight:600;font-size:1.1rem;margin-top:8px;">콘텐츠 최적화 점수: {score_label}</p>
-                <p style="color:#8b949e;font-size:.82rem;">키워드: "{co_keyword}" · {co_result.get('word_count', 0)}단어 · 밀도 {co_result.get('keyword_density', 0)}%</p>
-            </div>
-            """, unsafe_allow_html=True)
+            # H1 존재
+            if h1:
+                co_score += 10
+                co_items.append(("H1 태그", True))
+            else:
+                co_items.append(("H1 태그", False))
 
-            # 체크 결과
-            checks = co_result.get("checks", [])
-            if checks:
-                st.markdown("**진단 항목**")
-                for check in checks:
-                    icon = "✅" if check["pass"] else "❌"
-                    bg = "#3fb95015" if check["pass"] else "#f8514915"
-                    border = "#3fb95040" if check["pass"] else "#f8514940"
-                    st.markdown(f"""
-                    <div style="background:{bg};border:1px solid {border};border-radius:6px;padding:8px 14px;margin-bottom:4px;display:flex;align-items:center;gap:10px;">
-                        <span style="font-size:1rem;">{icon}</span>
-                        <div>
-                            <span style="color:#e6edf3;font-weight:600;font-size:.9rem;">{check['name']}</span>
-                            <span style="color:#8b949e;font-size:.82rem;margin-left:8px;">{check['detail']}</span>
+            # Meta Description 존재 및 길이
+            desc = p.get("Meta Desc", "")
+            desc_len = p.get("Desc Len", 0)
+            if desc and 70 <= desc_len <= 160:
+                co_score += 10
+                co_items.append(("Description", True))
+            elif desc:
+                co_score += 5
+                co_items.append(("Description 길이", False))
+            else:
+                co_items.append(("Description", False))
+
+            # 서브헤딩 구조
+            h2s = p.get("H2s", 0)
+            h3s = p.get("H3s", 0)
+            if h2s >= 3:
+                co_score += 10
+                co_items.append(("서브헤딩 구조", True))
+            elif h2s >= 1:
+                co_score += 5
+                co_items.append(("서브헤딩 부족", False))
+            else:
+                co_items.append(("서브헤딩 없음", False))
+
+            # 콘텐츠 길이
+            if words >= 2000:
+                co_score += 10
+            elif words >= 1000:
+                co_score += 7
+            elif words >= 500:
+                co_score += 4
+            co_items.append(("콘텐츠 길이", words >= 1000))
+
+            # 이미지
+            imgs = p.get("Images", 0)
+            if imgs >= 3:
+                co_score += 10
+            elif imgs >= 1:
+                co_score += 5
+            co_items.append(("이미지", imgs >= 1))
+
+            # 내부 링크
+            int_links = len(p.get("_internal_links", []))
+            if int_links >= 5:
+                co_score += 5
+            elif int_links >= 2:
+                co_score += 3
+            co_items.append(("내부 링크", int_links >= 3))
+
+            # 외부 링크
+            ext_links = p.get("Ext Links", 0)
+            if ext_links >= 2:
+                co_score += 5
+            co_items.append(("외부 인용", ext_links >= 1))
+
+            # Schema
+            if p.get("Has Schema"):
+                co_score += 5
+                co_items.append(("구조화 데이터", True))
+            else:
+                co_items.append(("구조화 데이터", False))
+
+            # HTTPS
+            if p.get("HTTPS"):
+                co_score += 5
+
+            # Title 길이
+            title_len = p.get("Title Len", 0)
+            if 30 <= title_len <= 60:
+                co_score += 5
+                co_items.append(("Title 길이", True))
+            else:
+                co_items.append(("Title 길이", False))
+
+            # URL 길이 합리적
+            path = urlparse(url).path
+            if len(path) <= 80:
+                co_score += 5
+            co_items.append(("URL 구조", len(path) <= 80))
+
+            co_score = min(co_score, 100)
+
+            content_pages.append({
+                "url": url,
+                "keyword": auto_keyword,
+                "score": co_score,
+                "words": words,
+                "items": co_items,
+                "h1": h1,
+                "title": title,
+            })
+
+        # 점수순 정렬
+        content_pages.sort(key=lambda x: x["score"])
+
+        if content_pages:
+            # 요약 통계
+            avg_co = round(sum(cp["score"] for cp in content_pages) / len(content_pages))
+            good_co = sum(1 for cp in content_pages if cp["score"] >= 70)
+            bad_co = sum(1 for cp in content_pages if cp["score"] < 40)
+
+            co_stat_cols = st.columns(4)
+            co_stat_cols[0].metric("평균 점수", f"{avg_co}/100")
+            co_stat_cols[1].metric("우수 (70+)", f"{good_co}개")
+            co_stat_cols[2].metric("개선 필요 (<40)", f"{bad_co}개")
+            co_stat_cols[3].metric("분석 페이지", f"{len(content_pages)}개")
+
+            # 페이지별 테이블
+            st.markdown("**페이지별 콘텐츠 최적화 점수**")
+            for cp in content_pages[:50]:
+                sc = cp["score"]
+                sc_color = "#3fb950" if sc >= 70 else "#d29922" if sc >= 40 else "#f85149"
+                url_short = urlparse(cp["url"]).path or "/"
+                passed = sum(1 for _, ok in cp["items"] if ok)
+                total_checks = len(cp["items"])
+                item_icons = "".join("✅" if ok else "❌" for _, ok in cp["items"])
+
+                st.markdown(f"""
+                <div style="background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:10px 14px;margin-bottom:4px;">
+                    <div style="display:flex;align-items:center;gap:12px;">
+                        <span style="color:{sc_color};font-weight:800;font-size:1.1rem;min-width:36px;">{sc}</span>
+                        <div style="flex:1;overflow:hidden;">
+                            <div style="color:#58a6ff;font-size:.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{cp['url']}">{url_short}</div>
+                            <div style="color:#8b949e;font-size:.75rem;margin-top:2px;">키워드: {cp['keyword'][:40]} · {cp['words']}단어 · {passed}/{total_checks} 항목 통과</div>
                         </div>
+                        <span style="font-size:.7rem;letter-spacing:-1px;">{item_icons}</span>
                     </div>
-                    """, unsafe_allow_html=True)
+                </div>
+                """, unsafe_allow_html=True)
 
-            # 개선 권장사항
-            recs = co_result.get("recommendations", [])
-            if recs:
-                st.markdown("**개선 권장사항**")
-                for i, rec in enumerate(recs, 1):
+            # 개별 페이지 상세 분석 (수동)
+            st.markdown("---")
+            st.markdown("**개별 페이지 상세 분석**")
+            st.caption("특정 페이지의 키워드를 수정하고 상세 분석을 실행할 수 있습니다.")
+
+            page_urls = [cp["url"] for cp in content_pages]
+            page_keywords = {cp["url"]: cp["keyword"] for cp in content_pages}
+
+            with st.form("content_opt_detail_form", clear_on_submit=False):
+                co_cols = st.columns([3, 2])
+                with co_cols[0]:
+                    co_url = st.selectbox("분석할 페이지", page_urls, format_func=lambda u: urlparse(u).path or "/", key="co_url_select")
+                with co_cols[1]:
+                    default_kw = page_keywords.get(co_url, "")
+                    co_keyword = st.text_input("타겟 키워드 (수정 가능)", value=default_kw, key="co_keyword_input")
+                co_submit = st.form_submit_button("🔍 상세 분석 시작", use_container_width=True, type="primary")
+
+            if co_submit and co_url and co_keyword:
+                with st.spinner(f"'{co_keyword}' 키워드로 페이지 분석 중..."):
+                    co_result = crawler.analyze_content_optimization(co_url.strip(), co_keyword.strip())
+
+                if co_result:
+                    score = co_result.get("score", 0)
+                    if score >= 80:
+                        score_color, score_label = "#3fb950", "우수"
+                    elif score >= 60:
+                        score_color, score_label = "#58a6ff", "양호"
+                    elif score >= 40:
+                        score_color, score_label = "#d29922", "보통"
+                    else:
+                        score_color, score_label = "#f85149", "개선 필요"
+
                     st.markdown(f"""
-                    <div style="background:#161b22;border:1px solid #30363d;border-left:3px solid #d29922;border-radius:6px;padding:10px 14px;margin-bottom:4px;">
-                        <span style="color:#d29922;font-weight:700;">{i}.</span>
-                        <span style="color:#e6edf3;font-size:.9rem;margin-left:6px;">{rec}</span>
+                    <div style="text-align:center;margin:16px 0;">
+                        <div class="score-circle {'score-good' if score >= 60 else 'score-medium' if score >= 40 else 'score-bad'}" style="width:120px;height:120px;font-size:2rem;margin:0 auto;">{score}</div>
+                        <p style="color:{score_color};font-weight:600;font-size:1.1rem;margin-top:8px;">콘텐츠 최적화 점수: {score_label}</p>
+                        <p style="color:#8b949e;font-size:.82rem;">키워드: "{co_keyword}" · {co_result.get('word_count', 0)}단어 · 밀도 {co_result.get('keyword_density', 0)}%</p>
                     </div>
                     """, unsafe_allow_html=True)
 
-            # 메트릭 요약
-            met_cols = st.columns(5)
-            met_cols[0].metric("단어 수", f"{co_result.get('word_count', 0):,}")
-            met_cols[1].metric("키워드 빈도", f"{co_result.get('keyword_count', 0)}회")
-            met_cols[2].metric("헤딩 수", f"{co_result.get('heading_count', 0)}개")
-            met_cols[3].metric("이미지", f"{co_result.get('image_count', 0)}개")
-            met_cols[4].metric("내부 링크", f"{co_result.get('internal_links', 0)}개")
+                    checks = co_result.get("checks", [])
+                    if checks:
+                        st.markdown("**진단 항목**")
+                        for check in checks:
+                            icon = "✅" if check["pass"] else "❌"
+                            bg = "#3fb95015" if check["pass"] else "#f8514915"
+                            border = "#3fb95040" if check["pass"] else "#f8514940"
+                            st.markdown(f"""
+                            <div style="background:{bg};border:1px solid {border};border-radius:6px;padding:8px 14px;margin-bottom:4px;display:flex;align-items:center;gap:10px;">
+                                <span style="font-size:1rem;">{icon}</span>
+                                <div>
+                                    <span style="color:#e6edf3;font-weight:600;font-size:.9rem;">{check['name']}</span>
+                                    <span style="color:#8b949e;font-size:.82rem;margin-left:8px;">{check['detail']}</span>
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                    recs = co_result.get("recommendations", [])
+                    if recs:
+                        st.markdown("**개선 권장사항**")
+                        for i, rec in enumerate(recs, 1):
+                            st.markdown(f"""
+                            <div style="background:#161b22;border:1px solid #30363d;border-left:3px solid #d29922;border-radius:6px;padding:10px 14px;margin-bottom:4px;">
+                                <span style="color:#d29922;font-weight:700;">{i}.</span>
+                                <span style="color:#e6edf3;font-size:.9rem;margin-left:6px;">{rec}</span>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                    met_cols = st.columns(5)
+                    met_cols[0].metric("단어 수", f"{co_result.get('word_count', 0):,}")
+                    met_cols[1].metric("키워드 빈도", f"{co_result.get('keyword_count', 0)}회")
+                    met_cols[2].metric("헤딩 수", f"{co_result.get('heading_count', 0)}개")
+                    met_cols[3].metric("이미지", f"{co_result.get('image_count', 0)}개")
+                    met_cols[4].metric("내부 링크", f"{co_result.get('internal_links', 0)}개")
+    else:
+        st.info("크롤링 데이터가 필요합니다. 설정 탭에서 크롤링을 실행하세요.")
 
 
 def _estimate_ai_readiness(page_data):
     """
     크롤 데이터에서 AI 준비도를 추정합니다.
     (실제 soup 없이 저장된 데이터만으로 계산)
+    각 차원별 점수 + 상세 항목(✅/❌)을 반환합니다.
     """
     score = 0
-    details = {}
+    dim_details = {}  # {차원명: {"score": n, "max": m, "items": [...]}}
 
     eeat = page_data.get("_eeat") or {}
     if not isinstance(eeat, dict): eeat = {}
@@ -2552,98 +2806,204 @@ def _estimate_ai_readiness(page_data):
     if not isinstance(tech, dict): tech = {}
     content = page_data.get("_content") or {}
     if not isinstance(content, dict): content = {}
-    perf = page_data.get("_perf", {})
 
-    # 인용 준비도 (25점) — 콘텐츠 구조 기반 추정
+    # ── 1. 인용 준비도 (25점) ──
     cr = 0
+    cr_items = []
     wc = page_data.get("Words", 0)
     if wc >= 1500:
         cr += 10
+        cr_items.append(f"✅ 콘텐츠 길이 충분 ({wc}단어)")
     elif wc >= 800:
         cr += 6
+        cr_items.append(f"⚠️ 콘텐츠 보통 ({wc}단어, 1500+ 권장)")
     elif wc >= 300:
         cr += 3
-    # 이미지 (구조화된 콘텐츠 표시)
-    if page_data.get("Images", 0) >= 3:
+        cr_items.append(f"❌ 콘텐츠 부족 ({wc}단어, 1500+ 권장)")
+    else:
+        cr_items.append(f"❌ 콘텐츠 매우 짧음 ({wc}단어)")
+
+    img_count = page_data.get("Images", 0)
+    if img_count >= 3:
         cr += 5
-    elif page_data.get("Images", 0) >= 1:
+        cr_items.append(f"✅ 이미지 풍부 ({img_count}개)")
+    elif img_count >= 1:
         cr += 2
-    # 외부 링크 (인용)
-    if page_data.get("Ext Links", 0) >= 3:
+        cr_items.append(f"⚠️ 이미지 부족 ({img_count}개, 3개+ 권장)")
+    else:
+        cr_items.append("❌ 이미지 없음")
+
+    ext_links = page_data.get("Ext Links", 0)
+    if ext_links >= 3:
         cr += 5
-    elif page_data.get("Ext Links", 0) >= 1:
+        cr_items.append(f"✅ 외부 인용 링크 충분 ({ext_links}개)")
+    elif ext_links >= 1:
         cr += 3
-    # Text/HTML 비율
+        cr_items.append(f"⚠️ 외부 인용 부족 ({ext_links}개, 3개+ 권장)")
+    else:
+        cr_items.append("❌ 외부 인용 링크 없음 — 신뢰성 저하")
+
     thr = page_data.get("Text/HTML %", 0)
     if thr >= 30:
         cr += 5
+        cr_items.append(f"✅ 텍스트 비율 양호 ({thr:.0f}%)")
     elif thr >= 15:
         cr += 3
-    score += min(cr, 25)
+        cr_items.append(f"⚠️ 텍스트 비율 보통 ({thr:.0f}%, 30%+ 권장)")
+    else:
+        cr_items.append(f"❌ 텍스트 비율 낮음 ({thr:.0f}%)")
+    cr_val = min(cr, 25)
+    score += cr_val
+    dim_details["인용 준비도"] = {"score": cr_val, "max": 25, "items": cr_items}
 
-    # 답변 적합성 (20점) — 헤딩 구조 기반
+    # ── 2. 답변 적합성 (20점) ──
     aa = 0
+    aa_items = []
     total_headings = sum(page_data.get(f"H{i}s", 0) for i in range(2, 4))
     if total_headings >= 5:
         aa += 8
+        aa_items.append(f"✅ 서브헤딩 구조 풍부 (H2/H3 {total_headings}개)")
     elif total_headings >= 3:
         aa += 5
+        aa_items.append(f"⚠️ 서브헤딩 보통 (H2/H3 {total_headings}개, 5개+ 권장)")
     elif total_headings >= 1:
         aa += 3
+        aa_items.append(f"❌ 서브헤딩 부족 (H2/H3 {total_headings}개)")
+    else:
+        aa_items.append("❌ H2/H3 서브헤딩 없음 — AI가 답변 구조를 파악하기 어려움")
+
     if tech.get("heading_hierarchy_ok"):
         aa += 6
+        aa_items.append("✅ 헤딩 계층 구조 정상")
+    else:
+        aa_items.append("❌ 헤딩 계층 구조 오류 — H1→H2→H3 순서 권장")
+
     if wc >= 500:
         aa += 6
-    score += min(aa, 20)
+        aa_items.append("✅ 답변에 충분한 콘텐츠 분량")
+    else:
+        aa_items.append("❌ 콘텐츠가 너무 짧아 AI 답변 소스로 부적합")
+    aa_val = min(aa, 20)
+    score += aa_val
+    dim_details["답변 적합성"] = {"score": aa_val, "max": 20, "items": aa_items}
 
-    # 콘텐츠 권위 (20점)
+    # ── 3. 콘텐츠 권위 (20점) ──
     ca = 0
+    ca_items = []
     if eeat.get("has_author"):
         ca += 7
+        ca_items.append("✅ 저자 정보 명시")
+    else:
+        ca_items.append("❌ 저자 정보 없음 — 전문성 판단 불가")
+
     if eeat.get("has_published_date"):
         ca += 5
+        ca_items.append("✅ 발행일 명시")
+    else:
+        ca_items.append("❌ 발행일 없음 — 최신성 판단 불가")
+
     if eeat.get("has_modified_date"):
         ca += 4
-    if page_data.get("Ext Links", 0) >= 2:
-        ca += 4
-    score += min(ca, 20)
+        ca_items.append("✅ 수정일 명시 (최신 콘텐츠 신호)")
+    else:
+        ca_items.append("⚠️ 수정일 없음 — 업데이트 여부 알 수 없음")
 
-    # 지식 그래프 연동 (15점)
+    if ext_links >= 2:
+        ca += 4
+        ca_items.append("✅ 외부 출처 인용으로 권위 강화")
+    else:
+        ca_items.append("❌ 외부 출처 인용 부족")
+    ca_val = min(ca, 20)
+    score += ca_val
+    dim_details["콘텐츠 권위"] = {"score": ca_val, "max": 20, "items": ca_items}
+
+    # ── 4. 지식 그래프 연동 (15점) ──
     kg = 0
+    kg_items = []
     all_types = schema.get("all_types", [])
+    if not isinstance(all_types, list): all_types = []
+
     if schema.get("has_schema"):
         kg += 4
+        kg_items.append(f"✅ 구조화 데이터 존재 ({', '.join(all_types[:5])})")
+    else:
+        kg_items.append("❌ 구조화 데이터 없음 — Knowledge Graph 연동 불가")
+
     if "FAQPage" in all_types:
         kg += 5
-    if any(t in all_types for t in ("Article", "BlogPosting")):
+        kg_items.append("✅ FAQPage 스키마 (AI 인용률 +41%)")
+    else:
+        kg_items.append("⚠️ FAQPage 스키마 없음 — FAQ 콘텐츠가 있다면 추가 권장")
+
+    if any(t in all_types for t in ("Article", "BlogPosting", "NewsArticle")):
         kg += 3
+        kg_items.append("✅ Article 스키마")
+    else:
+        kg_items.append("⚠️ Article 스키마 없음")
+
     if "BreadcrumbList" in all_types:
         kg += 3
-    score += min(kg, 15)
+        kg_items.append("✅ BreadcrumbList 스키마")
+    kg_val = min(kg, 15)
+    score += kg_val
+    dim_details["지식 그래프 연동"] = {"score": kg_val, "max": 15, "items": kg_items}
 
-    # 기술적 접근성 (10점)
+    # ── 5. 기술적 접근성 (10점) ──
     ta = 0
+    ta_items = []
     if not tech.get("is_noindex"):
         ta += 3
+        ta_items.append("✅ 인덱싱 허용")
+    else:
+        ta_items.append("❌ noindex 설정 — AI 검색 노출 불가")
+
     if tech.get("heading_hierarchy_ok"):
         ta += 3
+        ta_items.append("✅ 헤딩 계층 구조 정상")
+    else:
+        ta_items.append("❌ 헤딩 계층 오류")
+
     if tech.get("has_viewport"):
         ta += 2
+        ta_items.append("✅ 모바일 뷰포트 설정")
+    else:
+        ta_items.append("⚠️ 뷰포트 메타태그 없음")
+
     if tech.get("lang"):
         ta += 2
-    score += min(ta, 10)
+        ta_items.append(f"✅ 언어 명시: {tech['lang']}")
+    else:
+        ta_items.append("❌ html lang 속성 없음")
+    ta_val = min(ta, 10)
+    score += ta_val
+    dim_details["기술적 접근성"] = {"score": ta_val, "max": 10, "items": ta_items}
 
-    # 차별화 (10점)
+    # ── 6. 차별화 (10점) ──
     di = 0
+    di_items = []
     if wc >= 2000:
         di += 4
+        di_items.append(f"✅ 심층 콘텐츠 ({wc}단어)")
     elif wc >= 1000:
         di += 2
-    if page_data.get("Images", 0) >= 3:
+        di_items.append(f"⚠️ 콘텐츠 길이 보통 ({wc}단어, 2000+ 권장)")
+    else:
+        di_items.append(f"❌ 콘텐츠 짧음 — 경쟁 콘텐츠 대비 차별화 어려움")
+
+    if img_count >= 3:
         di += 3
+        di_items.append(f"✅ 시각 자료 풍부 ({img_count}개 이미지)")
+    else:
+        di_items.append("⚠️ 시각 자료 부족 — 이미지/인포그래픽 추가 권장")
+
     if page_data.get("Has Schema"):
         di += 3
-    score += min(di, 10)
+        di_items.append("✅ 구조화 데이터로 차별화")
+    else:
+        di_items.append("❌ Schema 없음")
+    di_val = min(di, 10)
+    score += di_val
+    dim_details["차별화"] = {"score": di_val, "max": 10, "items": di_items}
 
     total = min(score, 100)
     if total >= 70:
@@ -2653,13 +3013,18 @@ def _estimate_ai_readiness(page_data):
     else:
         grade_kr = "최적화 필요"
 
-    return {"score": total, "grade_kr": grade_kr}
+    return {"score": total, "grade_kr": grade_kr, "details": dim_details}
 
 
 # ── 프로젝트 설정 ──────────────────────────────────────────────────────────
 def render_project_settings(project):
     project_id = project["id"]
 
+    # ── 크롤링 실행 섹션 ──
+    st.markdown("### 🚀 크롤링 실행")
+    render_crawl_execution(project)
+
+    st.markdown("---")
     st.markdown("### ⚙️ 프로젝트 설정")
     st.caption("크롤링 모드, 속도, 스케줄 등 프로젝트 설정을 변경할 수 있습니다.")
 
