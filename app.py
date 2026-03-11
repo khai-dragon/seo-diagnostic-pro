@@ -824,49 +824,6 @@ def render_project_new():
         proj_name = st.text_input("프로젝트 이름", placeholder="내 블로그 SEO")
         proj_url = st.text_input("사이트 URL", placeholder="https://example.com")
 
-        crawl_mode = st.selectbox("크롤링 모드", [
-            "full — 전체 크롤링",
-            "sitemap — 사이트맵 기반",
-            "path — 특정 경로",
-            "mixed — 혼합 모드 (사이트맵 + 크롤링)",
-        ])
-        crawl_mode_key = crawl_mode.split(" — ")[0].strip()
-
-        crawl_path = ""
-        if "path" in crawl_mode_key:
-            crawl_path = st.text_input("크롤링 경로 (예: /blog/)", placeholder="/blog/")
-
-        max_pages = st.slider("최대 페이지 수", min_value=10, max_value=5000, value=200, step=10)
-        st.markdown("""
-        <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;margin-bottom:8px;font-size:.85rem;">
-            <span style="color:#e6edf3;font-weight:600;">💡 크롤링 속도 안내:</span>
-            <span style="color:#3fb950;">0.5초↑ 안전</span> ·
-            <span style="color:#d29922;">0.3~0.5초 보통</span> ·
-            <span style="color:#f85149;">0.3초↓ 서버 부하 위험</span>
-        </div>
-        """, unsafe_allow_html=True)
-        crawl_delay = st.slider("크롤링 딜레이 (초)", min_value=0.3, max_value=5.0, value=0.5, step=0.1,
-                                help="각 페이지 요청 사이의 대기 시간입니다. 너무 빠르면 서버에 부담을 줄 수 있습니다.")
-        if crawl_delay < 0.5:
-            st.warning("⚠️ 딜레이가 0.5초 미만이면 대상 서버에 과부하를 줄 수 있습니다. 공유 호스팅 사이트에서는 0.5초 이상을 권장합니다.")
-
-        schedule = st.selectbox("자동 수집 스케줄", [
-            "manual — 수동 (직접 실행)",
-            "biweekly — 주 2회 (화, 금)",
-            "weekly — 주 1회",
-        ])
-        schedule_key = schedule.split(" — ")[0].strip()
-
-        schedule_time = "09:00"
-        if schedule_key != "manual":
-            schedule_time_val = st.time_input("수집 시간", value=datetime.strptime("09:00", "%H:%M").time())
-            schedule_time = schedule_time_val.strftime("%H:%M")
-            if schedule_key == "weekly":
-                schedule_day = st.selectbox("수집 요일", ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"], index=0)
-                schedule_time = f"{schedule_day} {schedule_time}"
-            elif schedule_key == "biweekly":
-                st.caption("화요일과 금요일에 자동으로 수집됩니다.")
-
         submitted = st.form_submit_button("프로젝트 생성", use_container_width=True, type="primary")
 
         if submitted:
@@ -879,12 +836,12 @@ def render_project_new():
                     user_id=user["id"],
                     name=proj_name,
                     url=proj_url,
-                    crawl_mode=crawl_mode_key,
-                    crawl_path=crawl_path,
-                    max_pages=max_pages,
-                    crawl_delay=crawl_delay,
-                    schedule=schedule_key,
-                    schedule_time=schedule_time,
+                    crawl_mode="full",
+                    crawl_path="",
+                    max_pages=200,
+                    crawl_delay=0.5,
+                    schedule="manual",
+                    schedule_time="09:00",
                 )
                 st.success("프로젝트가 생성되었습니다!")
                 navigate("project_detail", current_project_id=proj_id)
@@ -923,14 +880,10 @@ def render_project_detail():
             return
 
     # Tabs
-    tab_insights, tab_overview, tab_crawl, tab_results, tab_history, tab_sc, tab_speed, tab_changes, tab_settings = st.tabs([
-        "💡 인사이트", "📋 개요", "🚀 크롤링 실행", "📊 결과 분석", "📈 히스토리",
+    tab_insights, tab_crawl, tab_results, tab_history, tab_sc, tab_speed, tab_changes, tab_settings = st.tabs([
+        "💡 인사이트", "🚀 크롤링 실행", "📊 결과 분석", "📈 히스토리",
         "🔍 서치콘솔", "⚡ 사이트 속도", "📝 변경 히스토리", "⚙️ 설정"
     ])
-
-    # ── 개요 탭 ──
-    with tab_overview:
-        render_project_overview(project)
 
     # ── 크롤링 실행 탭 ──
     with tab_crawl:
@@ -1683,10 +1636,15 @@ def render_crawl_history(project):
 
 # ── 인사이트 ──────────────────────────────────────────────────────────────────
 def render_insights(project):
+    # ── 개요 (건강 점수 + 요약 카드) ──
+    render_project_overview(project)
+
     latest = db.get_latest_crawl(project["id"])
     if not latest:
         st.info("인사이트를 생성하려면 먼저 크롤링을 실행하세요.")
         return
+
+    st.divider()
 
     # ── 통합 인사이트 (Search Console + 크롤 데이터) ──
     try:
@@ -1939,7 +1897,7 @@ def render_insights(project):
     with col_content:
         st.markdown("## 📝 콘텐츠 사이드")
 
-        with st.expander(f"🚨 즉시 해야 할 것 ({len(content_urgent)}건)", expanded=len(content_urgent) > 0):
+        with st.expander(f"🚨 즉시 해야 할 것 ({len(content_urgent)}건)", expanded=False):
             if content_urgent:
                 _render_insight_list(content_urgent)
             else:
@@ -1964,26 +1922,80 @@ def render_insights(project):
             else:
                 st.caption("새로 발견된 페이지가 없습니다.")
 
-        content_todos = content_urgent + content_new_issues
-        with st.expander(f"📋 오늘의 콘텐츠 TODO ({len(content_todos)}건)", expanded=len(content_todos) > 0):
-            if content_todos:
-                for i, ins in enumerate(content_todos[:10], 1):
-                    severity_badge = f'<span class="badge-{ins.get("severity","MEDIUM").lower()}">{ins.get("severity","")}</span>'
-                    st.markdown(f"""
-                    <div class="insight-card new-issue">
-                        <div class="insight-title">{i}. {severity_badge} {ins['title']}</div>
-                        <div class="insight-detail">{ins.get('detail', '')}</div>
-                        <div class="insight-url">{ins.get('url', '')}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-            else:
-                st.success("오늘의 콘텐츠 할 일이 없습니다!")
+        # ── Search Console 연동 미리보기 ──
+        try:
+            sc_conn = db.get_sc_connection(project["id"])
+        except Exception:
+            sc_conn = None
+
+        if sc_conn:
+            with st.expander("🔍 Search Console 데이터", expanded=False):
+                try:
+                    end_str = datetime.utcnow().strftime("%Y-%m-%d")
+                    start_str = (datetime.utcnow() - timedelta(days=28)).strftime("%Y-%m-%d")
+                    sc_data = db.get_sc_analytics(project["id"], start_str, end_str)
+                    if sc_data:
+                        total_clicks = sum(r.get("clicks", 0) for r in sc_data)
+                        total_impressions = sum(r.get("impressions", 0) for r in sc_data)
+                        avg_ctr = (total_clicks / total_impressions * 100) if total_impressions > 0 else 0
+                        positions = [r.get("position", 0) for r in sc_data if r.get("position")]
+                        avg_position = round(sum(positions) / len(positions), 1) if positions else 0
+
+                        mc = st.columns(4)
+                        mc[0].metric("클릭수", f"{total_clicks:,}")
+                        mc[1].metric("노출수", f"{total_impressions:,}")
+                        mc[2].metric("평균 CTR", f"{avg_ctr:.1f}%")
+                        mc[3].metric("평균 순위", f"{avg_position}")
+
+                        # 상위 키워드
+                        kw_map = {}
+                        for r in sc_data:
+                            q = r.get("query", "")
+                            if q:
+                                if q not in kw_map:
+                                    kw_map[q] = {"clicks": 0, "impressions": 0}
+                                kw_map[q]["clicks"] += r.get("clicks", 0)
+                                kw_map[q]["impressions"] += r.get("impressions", 0)
+                        top_kws = sorted(kw_map.items(), key=lambda x: -x[1]["clicks"])[:5]
+                        if top_kws:
+                            st.markdown("**상위 키워드**")
+                            for q, d in top_kws:
+                                st.markdown(f"- **{q}** — 클릭 {d['clicks']:,} · 노출 {d['impressions']:,}")
+                    else:
+                        st.info("Search Console 데이터를 동기화하면 여기에 실제 데이터가 표시됩니다.")
+                except Exception:
+                    st.info("Search Console 데이터를 불러오는 중 오류가 발생했습니다.")
+        else:
+            with st.expander("🔍 Search Console 미리보기 (연동 시 제공)", expanded=False):
+                st.markdown("""
+                <div style="opacity:0.6;">
+                <p style="color:#e6edf3;font-weight:600;margin-bottom:12px;">Search Console을 연동하면 다음 데이터를 확인할 수 있습니다:</p>
+                </div>
+                """, unsafe_allow_html=True)
+                demo_cols = st.columns(4)
+                demo_cols[0].metric("클릭수", "1,247", help="예시 데이터")
+                demo_cols[1].metric("노출수", "45,832", help="예시 데이터")
+                demo_cols[2].metric("평균 CTR", "2.7%", help="예시 데이터")
+                demo_cols[3].metric("평균 순위", "18.3", help="예시 데이터")
+                st.markdown("""
+                <div style="opacity:0.6;">
+                <p style="font-size:0.85rem;margin-top:8px;"><strong>상위 키워드 (예시)</strong></p>
+                <ul style="font-size:0.82rem;color:#8b949e;">
+                    <li><strong>SEO 최적화 방법</strong> — 클릭 312 · 노출 8,420</li>
+                    <li><strong>메타 태그 작성법</strong> — 클릭 198 · 노출 5,130</li>
+                    <li><strong>사이트맵 제출</strong> — 클릭 145 · 노출 3,890</li>
+                    <li><strong>구조화 데이터 적용</strong> — 클릭 89 · 노출 2,760</li>
+                    <li><strong>페이지 속도 개선</strong> — 클릭 76 · 노출 2,100</li>
+                </ul>
+                <p style="font-size:0.82rem;color:#d29922;margin-top:12px;">💡 '서치콘솔' 탭에서 Google Search Console을 연동하세요.</p>
+                </div>
+                """, unsafe_allow_html=True)
 
     # ── Right: 테크니컬 사이드 ──
     with col_tech:
         st.markdown("## ⚙️ 테크니컬 사이드")
 
-        with st.expander(f"🚨 즉시 해야 할 것 ({len(tech_urgent)}건)", expanded=len(tech_urgent) > 0):
+        with st.expander(f"🚨 즉시 해야 할 것 ({len(tech_urgent)}건)", expanded=False):
             if tech_urgent:
                 _render_insight_list(tech_urgent)
             else:
@@ -2005,20 +2017,66 @@ def render_insights(project):
             with st.expander(f"🚫 사라진 페이지 ({len(tech_lost_pages)}건)"):
                 _render_insight_list(tech_lost_pages)
 
-        tech_todos = tech_urgent + tech_new_issues
-        with st.expander(f"📋 오늘의 테크니컬 TODO ({len(tech_todos)}건)", expanded=len(tech_todos) > 0):
-            if tech_todos:
-                for i, ins in enumerate(tech_todos[:10], 1):
-                    severity_badge = f'<span class="badge-{ins.get("severity","MEDIUM").lower()}">{ins.get("severity","")}</span>'
+        # ── PageSpeed 미리보기 ──
+        try:
+            ps_results = db.get_pagespeed_data(project["id"])
+        except Exception:
+            ps_results = None
+
+        if ps_results:
+            with st.expander("⚡ PageSpeed 페이지별 성능", expanded=False):
+                for ps in ps_results[:10]:
+                    url = ps.get("url", "")
+                    score = ps.get("score", 0)
+                    score_pct = int(score * 100) if score <= 1 else int(score)
+                    lcp = ps.get("lcp", 0)
+                    cls_val = ps.get("cls", 0)
+                    fid = ps.get("fid", ps.get("inp", 0))
+                    s_color = "#3fb950" if score_pct >= 90 else "#d29922" if score_pct >= 50 else "#f85149"
                     st.markdown(f"""
-                    <div class="insight-card new-issue">
-                        <div class="insight-title">{i}. {severity_badge} {ins['title']}</div>
-                        <div class="insight-detail">{ins.get('detail', '')}</div>
-                        <div class="insight-url">{ins.get('url', '')}</div>
+                    <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;margin-bottom:8px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;">
+                            <span style="color:#e6edf3;font-size:0.85rem;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{url}">{url}</span>
+                            <span style="color:{s_color};font-weight:700;font-size:1.1rem;">{score_pct}</span>
+                        </div>
+                        <div style="display:flex;gap:16px;margin-top:6px;font-size:0.78rem;color:#8b949e;">
+                            <span>LCP: {lcp:.1f}s</span>
+                            <span>CLS: {cls_val:.3f}</span>
+                            <span>FID/INP: {fid}ms</span>
+                        </div>
                     </div>
                     """, unsafe_allow_html=True)
-            else:
-                st.success("오늘의 테크니컬 할 일이 없습니다!")
+                if len(ps_results) > 10:
+                    st.caption(f"외 {len(ps_results) - 10}개 페이지 — '사이트 속도' 탭에서 전체 확인")
+        else:
+            with st.expander("⚡ PageSpeed 미리보기 (측정 시 제공)", expanded=False):
+                example_pages = [
+                    {"url": f"{project['url']}/", "score": 78, "lcp": "2.1s", "cls": "0.05", "fid": "120ms"},
+                    {"url": f"{project['url']}/about", "score": 85, "lcp": "1.8s", "cls": "0.02", "fid": "90ms"},
+                    {"url": f"{project['url']}/blog", "score": 62, "lcp": "3.2s", "cls": "0.15", "fid": "210ms"},
+                    {"url": f"{project['url']}/contact", "score": 91, "lcp": "1.4s", "cls": "0.01", "fid": "65ms"},
+                    {"url": f"{project['url']}/products", "score": 45, "lcp": "4.5s", "cls": "0.25", "fid": "380ms"},
+                ]
+                st.markdown('<div style="opacity:0.6;">', unsafe_allow_html=True)
+                for pg in example_pages:
+                    s_color = "#3fb950" if pg["score"] >= 90 else "#d29922" if pg["score"] >= 50 else "#f85149"
+                    st.markdown(f"""
+                    <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;margin-bottom:8px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;">
+                            <span style="color:#e6edf3;font-size:0.85rem;">{pg["url"]}</span>
+                            <span style="color:{s_color};font-weight:700;font-size:1.1rem;">{pg["score"]}</span>
+                        </div>
+                        <div style="display:flex;gap:16px;margin-top:6px;font-size:0.78rem;color:#8b949e;">
+                            <span>LCP: {pg["lcp"]}</span>
+                            <span>CLS: {pg["cls"]}</span>
+                            <span>FID: {pg["fid"]}</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+                st.markdown("""
+                <p style="font-size:0.82rem;color:#d29922;margin-top:8px;">💡 '사이트 속도' 탭에서 PageSpeed 측정을 실행하세요.</p>
+                """, unsafe_allow_html=True)
 
 
 # ── 프로젝트 설정 ──────────────────────────────────────────────────────────
