@@ -58,6 +58,7 @@ def init_db():
             crawl_delay REAL DEFAULT 0.3,
             schedule TEXT DEFAULT 'manual',
             schedule_time TEXT DEFAULT '09:00',
+            respect_robots TEXT DEFAULT 'respect',
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             last_crawl_at TEXT,
             FOREIGN KEY (user_id) REFERENCES users(id)
@@ -282,6 +283,10 @@ def init_db():
         pass
     try:
         cursor.execute("ALTER TABLE page_snapshots ADD COLUMN load_time REAL DEFAULT 0.0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE projects ADD COLUMN respect_robots TEXT DEFAULT 'respect'")
     except sqlite3.OperationalError:
         pass
 

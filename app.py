@@ -1906,143 +1906,110 @@ def render_insights(project):
     st.markdown(f"### 💡 인사이트 대시보드")
     st.caption(f"크롤링 #{latest['id']} 기준 · {(latest.get('completed_at') or '')[:16]}")
 
+    # 요약 카드
+    sum_cols = st.columns(4)
+    sum_cols[0].metric("🚨 콘텐츠 긴급", f"{len(content_urgent)}건")
+    sum_cols[1].metric("🚨 테크니컬 긴급", f"{len(tech_urgent)}건")
+    sum_cols[2].metric("✅ 개선된 항목", f"{len(content_improved) + len(tech_improved)}건")
+    sum_cols[3].metric("🆕 새 이슈", f"{len(content_new_issues) + len(tech_new_issues)}건")
+
     col_content, col_tech = st.columns(2)
+
+    def _render_insight_list(items, max_items=15):
+        for ins in items[:max_items]:
+            severity = ins.get("severity", "MEDIUM").lower()
+            st.markdown(f"""
+            <div class="insight-card {ins.get('insight_type', '')}">
+                <div class="insight-title"><span class="badge-{severity}">{ins.get('severity','')}</span> {ins['title']}</div>
+                <div class="insight-detail">{ins.get('detail', '')}</div>
+                <div class="insight-url">{ins.get('url', '')}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
     # ── Left: 콘텐츠 사이드 ──
     with col_content:
         st.markdown("## 📝 콘텐츠 사이드")
 
-        # Urgent
-        st.markdown(f"### 🚨 즉시 해야 할 것 ({len(content_urgent)}건)")
-        if content_urgent:
-            for ins in content_urgent[:15]:
-                st.markdown(f"""
-                <div class="insight-card urgent">
-                    <div class="insight-title">{ins['title']}</div>
-                    <div class="insight-detail">{ins.get('detail', '')}</div>
-                    <div class="insight-url">{ins.get('url', '')}</div>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.success("긴급한 콘텐츠 이슈가 없습니다!")
+        with st.expander(f"🚨 즉시 해야 할 것 ({len(content_urgent)}건)", expanded=len(content_urgent) > 0):
+            if content_urgent:
+                _render_insight_list(content_urgent)
+            else:
+                st.success("긴급한 콘텐츠 이슈가 없습니다!")
 
-        # Improved
-        st.markdown(f"### ✅ 좋아진 점 ({len(content_improved)}건)")
-        if content_improved:
-            for ins in content_improved[:15]:
-                st.markdown(f"""
-                <div class="insight-card improved">
-                    <div class="insight-title">{ins['title']}</div>
-                    <div class="insight-detail">{ins.get('detail', '')}</div>
-                    <div class="insight-url">{ins.get('url', '')}</div>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.caption("이전 대비 개선된 콘텐츠가 없습니다.")
+        with st.expander(f"✅ 좋아진 점 ({len(content_improved)}건)"):
+            if content_improved:
+                _render_insight_list(content_improved)
+            else:
+                st.caption("이전 대비 개선된 콘텐츠가 없습니다.")
 
-        # New pages (content-side)
         all_new_pages = content_new_pages + [i for i in tech_new_pages]
-        st.markdown(f"### 🆕 새로 발견된 페이지 ({len(all_new_pages)}건)")
-        if all_new_pages:
-            for ins in all_new_pages[:20]:
-                st.markdown(f"""
-                <div class="insight-card new-page">
-                    <div class="insight-title">{ins['title']}</div>
-                    <div class="insight-url">{ins.get('url', '')}</div>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.caption("새로 발견된 페이지가 없습니다.")
+        with st.expander(f"🆕 새로 발견된 페이지 ({len(all_new_pages)}건)"):
+            if all_new_pages:
+                for ins in all_new_pages[:20]:
+                    st.markdown(f"""
+                    <div class="insight-card new-page">
+                        <div class="insight-title">{ins['title']}</div>
+                        <div class="insight-url">{ins.get('url', '')}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.caption("새로 발견된 페이지가 없습니다.")
 
-        # Content TODO
-        st.markdown("### 📋 오늘의 콘텐츠 TODO")
         content_todos = content_urgent + content_new_issues
-        if content_todos:
-            for i, ins in enumerate(content_todos[:10], 1):
-                severity_badge = f'<span class="badge-{ins.get("severity","MEDIUM").lower()}">{ins.get("severity","")}</span>'
-                st.markdown(f"""
-                <div class="insight-card new-issue">
-                    <div class="insight-title">{i}. {severity_badge} {ins['title']}</div>
-                    <div class="insight-detail">{ins.get('detail', '')}</div>
-                    <div class="insight-url">{ins.get('url', '')}</div>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.success("오늘의 콘텐츠 할 일이 없습니다!")
+        with st.expander(f"📋 오늘의 콘텐츠 TODO ({len(content_todos)}건)", expanded=len(content_todos) > 0):
+            if content_todos:
+                for i, ins in enumerate(content_todos[:10], 1):
+                    severity_badge = f'<span class="badge-{ins.get("severity","MEDIUM").lower()}">{ins.get("severity","")}</span>'
+                    st.markdown(f"""
+                    <div class="insight-card new-issue">
+                        <div class="insight-title">{i}. {severity_badge} {ins['title']}</div>
+                        <div class="insight-detail">{ins.get('detail', '')}</div>
+                        <div class="insight-url">{ins.get('url', '')}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.success("오늘의 콘텐츠 할 일이 없습니다!")
 
     # ── Right: 테크니컬 사이드 ──
     with col_tech:
         st.markdown("## ⚙️ 테크니컬 사이드")
 
-        # Urgent
-        st.markdown(f"### 🚨 즉시 해야 할 것 ({len(tech_urgent)}건)")
-        if tech_urgent:
-            for ins in tech_urgent[:15]:
-                st.markdown(f"""
-                <div class="insight-card urgent">
-                    <div class="insight-title">{ins['title']}</div>
-                    <div class="insight-detail">{ins.get('detail', '')}</div>
-                    <div class="insight-url">{ins.get('url', '')}</div>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.success("긴급한 테크니컬 이슈가 없습니다!")
+        with st.expander(f"🚨 즉시 해야 할 것 ({len(tech_urgent)}건)", expanded=len(tech_urgent) > 0):
+            if tech_urgent:
+                _render_insight_list(tech_urgent)
+            else:
+                st.success("긴급한 테크니컬 이슈가 없습니다!")
 
-        # Improved
-        st.markdown(f"### ✅ 좋아진 점 ({len(tech_improved)}건)")
-        if tech_improved:
-            for ins in tech_improved[:15]:
-                st.markdown(f"""
-                <div class="insight-card improved">
-                    <div class="insight-title">{ins['title']}</div>
-                    <div class="insight-detail">{ins.get('detail', '')}</div>
-                    <div class="insight-url">{ins.get('url', '')}</div>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.caption("이전 대비 개선된 테크니컬 항목이 없습니다.")
+        with st.expander(f"✅ 좋아진 점 ({len(tech_improved)}건)"):
+            if tech_improved:
+                _render_insight_list(tech_improved)
+            else:
+                st.caption("이전 대비 개선된 테크니컬 항목이 없습니다.")
 
-        # New issues
-        st.markdown(f"### ⚠️ 새로 발견된 이슈 ({len(tech_new_issues)}건)")
-        if tech_new_issues:
-            for ins in tech_new_issues[:15]:
-                st.markdown(f"""
-                <div class="insight-card new-issue">
-                    <div class="insight-title">{ins['title']}</div>
-                    <div class="insight-detail">{ins.get('detail', '')}</div>
-                    <div class="insight-url">{ins.get('url', '')}</div>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.caption("새로 발견된 이슈가 없습니다.")
+        with st.expander(f"⚠️ 새로 발견된 이슈 ({len(tech_new_issues)}건)"):
+            if tech_new_issues:
+                _render_insight_list(tech_new_issues)
+            else:
+                st.caption("새로 발견된 이슈가 없습니다.")
 
-        # Lost pages
         if tech_lost_pages:
-            st.markdown(f"### 🚫 사라진 페이지 ({len(tech_lost_pages)}건)")
-            for ins in tech_lost_pages[:15]:
-                st.markdown(f"""
-                <div class="insight-card urgent">
-                    <div class="insight-title">{ins['title']}</div>
-                    <div class="insight-detail">{ins.get('detail', '')}</div>
-                    <div class="insight-url">{ins.get('url', '')}</div>
-                </div>
-                """, unsafe_allow_html=True)
+            with st.expander(f"🚫 사라진 페이지 ({len(tech_lost_pages)}건)"):
+                _render_insight_list(tech_lost_pages)
 
-        # Technical TODO
-        st.markdown("### 📋 오늘의 테크니컬 TODO")
         tech_todos = tech_urgent + tech_new_issues
-        if tech_todos:
-            for i, ins in enumerate(tech_todos[:10], 1):
-                severity_badge = f'<span class="badge-{ins.get("severity","MEDIUM").lower()}">{ins.get("severity","")}</span>'
-                st.markdown(f"""
-                <div class="insight-card new-issue">
-                    <div class="insight-title">{i}. {severity_badge} {ins['title']}</div>
-                    <div class="insight-detail">{ins.get('detail', '')}</div>
-                    <div class="insight-url">{ins.get('url', '')}</div>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.success("오늘의 테크니컬 할 일이 없습니다!")
+        with st.expander(f"📋 오늘의 테크니컬 TODO ({len(tech_todos)}건)", expanded=len(tech_todos) > 0):
+            if tech_todos:
+                for i, ins in enumerate(tech_todos[:10], 1):
+                    severity_badge = f'<span class="badge-{ins.get("severity","MEDIUM").lower()}">{ins.get("severity","")}</span>'
+                    st.markdown(f"""
+                    <div class="insight-card new-issue">
+                        <div class="insight-title">{i}. {severity_badge} {ins['title']}</div>
+                        <div class="insight-detail">{ins.get('detail', '')}</div>
+                        <div class="insight-url">{ins.get('url', '')}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.success("오늘의 테크니컬 할 일이 없습니다!")
 
 
 # ── 프로젝트 설정 ──────────────────────────────────────────────────────────
@@ -2130,12 +2097,30 @@ def render_project_settings(project):
             )
 
         st.markdown("---")
-        st.markdown("#### 📅 자동 수집 스케줄")
+        st.markdown("#### 🤖 robots.txt 설정")
+        respect_robots = st.radio(
+            "robots.txt 준수 여부",
+            ["respect", "ignore"],
+            index=0 if project.get("respect_robots", "respect") == "respect" else 1,
+            format_func=lambda x: {
+                "respect": "✅ 준수 — robots.txt에서 차단된 경로는 크롤링하지 않음 (권장)",
+                "ignore": "⚠️ 무시 — robots.txt와 관계없이 모든 경로를 강제 크롤링",
+            }.get(x, x),
+            help="robots.txt를 무시하면 차단된 경로도 수집합니다. SEO 진단 목적에서는 유용하지만, "
+                 "대상 사이트의 정책을 존중하는 것이 권장됩니다.",
+        )
+        if respect_robots == "ignore":
+            st.warning("robots.txt를 무시하고 크롤링합니다. 일부 사이트에서 IP 차단이 발생할 수 있습니다.")
 
-        schedule_options = ["manual", "biweekly", "weekly"]
+        st.markdown("---")
+        st.markdown("#### 📅 자동 수집 스케줄")
+        st.caption("모든 시간은 한국 표준시(KST, UTC+9) 기준입니다.")
+
+        schedule_options = ["manual", "daily", "biweekly", "weekly"]
         schedule_labels = {
             "manual": "수동 (직접 크롤링 실행)",
-            "biweekly": "주 2회 (화요일, 금요일 자동 크롤링)",
+            "daily": "매일 (매일 지정한 시간에 자동 크롤링)",
+            "biweekly": "주 2회 (선택한 요일에 자동 크롤링)",
             "weekly": "주 1회 (선택한 요일에 자동 크롤링)",
         }
         current_sched = project.get("schedule") or "manual"
@@ -2150,29 +2135,47 @@ def render_project_settings(project):
         # 시간/요일 파싱
         saved_schedule_time = project.get("schedule_time") or "09:00"
         saved_day = ""
+        saved_day2 = ""
         saved_time_str = saved_schedule_time
         if " " in saved_schedule_time:
-            parts = saved_schedule_time.rsplit(" ", 1)
-            saved_day = parts[0]
-            saved_time_str = parts[1]
+            parts = saved_schedule_time.split(" ")
+            if len(parts) >= 3:
+                saved_day = parts[0]
+                saved_day2 = parts[1]
+                saved_time_str = parts[2]
+            elif len(parts) == 2:
+                saved_day = parts[0]
+                saved_time_str = parts[1]
 
         new_schedule_time = saved_schedule_time
+        days = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"]
+
         if new_schedule != "manual":
             try:
                 default_time = datetime.strptime(saved_time_str, "%H:%M").time()
             except Exception:
                 default_time = datetime.strptime("09:00", "%H:%M").time()
-            time_val = st.time_input("수집 시간", value=default_time, key=f"settings_time_{project_id}")
+            time_val = st.time_input("수집 시간 (KST)", value=default_time, key=f"settings_time_{project_id}")
             time_str = time_val.strftime("%H:%M")
 
-            if new_schedule == "weekly":
-                days = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"]
+            if new_schedule == "daily":
+                st.caption(f"매일 {time_str} (KST)에 자동으로 크롤링됩니다.")
+                new_schedule_time = time_str
+            elif new_schedule == "weekly":
                 default_day_idx = days.index(saved_day) if saved_day in days else 0
                 schedule_day = st.selectbox("수집 요일", days, index=default_day_idx, key=f"settings_day_{project_id}")
                 new_schedule_time = f"{schedule_day} {time_str}"
+                st.caption(f"매주 {schedule_day} {time_str} (KST)에 자동으로 크롤링됩니다.")
             elif new_schedule == "biweekly":
-                st.caption("화요일과 금요일에 자동으로 수집됩니다.")
-                new_schedule_time = time_str
+                bw_cols = st.columns(2)
+                with bw_cols[0]:
+                    default_day1_idx = days.index(saved_day) if saved_day in days else 1  # 화요일
+                    bw_day1 = st.selectbox("첫 번째 요일", days, index=default_day1_idx, key=f"settings_bwday1_{project_id}")
+                with bw_cols[1]:
+                    default_day2_idx = days.index(saved_day2) if saved_day2 in days else 4  # 금요일
+                    bw_day2 = st.selectbox("두 번째 요일", days, index=default_day2_idx, key=f"settings_bwday2_{project_id}")
+                new_schedule_time = f"{bw_day1} {bw_day2} {time_str}"
+                st.caption(f"매주 {bw_day1}, {bw_day2} {time_str} (KST)에 자동으로 크롤링됩니다.")
 
         st.markdown("")
         submitted = st.form_submit_button("💾 설정 저장", use_container_width=True, type="primary")
@@ -2194,6 +2197,7 @@ def render_project_settings(project):
                     crawl_delay=max(new_delay, 0.3),
                     schedule=new_schedule,
                     schedule_time=new_schedule_time,
+                    respect_robots=respect_robots,
                 )
                 st.success("설정이 저장되었습니다!")
                 st.rerun()
