@@ -1028,27 +1028,14 @@ def render_project_overview(project):
 
     # Health score breakdown (PageSpeed style)
     if health_breakdown:
-        breakdown_html = ""
-        for cat_name, cat_data in health_breakdown.items():
-            pct = (cat_data["score"] / cat_data["max"] * 100) if cat_data["max"] > 0 else 0
-            bar_color = "#3fb950" if pct >= 80 else "#d29922" if pct >= 50 else "#f85149"
-            breakdown_html += f"""
-            <div style="margin-bottom:8px;">
-                <div style="display:flex;justify-content:space-between;margin-bottom:2px;">
-                    <span style="color:#e6edf3;font-size:.82rem;font-weight:600;">{cat_name}</span>
-                    <span style="color:{bar_color};font-size:.82rem;font-weight:700;">{cat_data['score']}/{cat_data['max']}</span>
-                </div>
-                <div style="background:#21262d;border-radius:4px;height:6px;overflow:hidden;">
-                    <div style="background:{bar_color};height:100%;width:{pct}%;border-radius:4px;transition:width .3s;"></div>
-                </div>
-                <div style="color:#8b949e;font-size:.72rem;margin-top:1px;">{cat_data['detail']}</div>
-            </div>"""
-        st.markdown(f"""
-        <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;margin-bottom:16px;">
-            <p style="color:#8b949e;font-size:.78rem;margin-bottom:12px;font-weight:600;">점수 산출 근거</p>
-            {breakdown_html}
-        </div>
-        """, unsafe_allow_html=True)
+        with st.expander("📊 점수 산출 근거", expanded=True):
+            for cat_name, cat_data in health_breakdown.items():
+                pct = (cat_data["score"] / cat_data["max"] * 100) if cat_data["max"] > 0 else 0
+                bar_color = "#3fb950" if pct >= 80 else "#d29922" if pct >= 50 else "#f85149"
+                label_emoji = "🟢" if pct >= 80 else "🟡" if pct >= 50 else "🔴"
+                st.markdown(f"{label_emoji} **{cat_name}** — {cat_data['score']}/{cat_data['max']}")
+                st.progress(pct / 100)
+                st.caption(cat_data["detail"])
 
     card_data = [
         ("총 페이지", total_pages, "", "전체 수집된 페이지 수"),
