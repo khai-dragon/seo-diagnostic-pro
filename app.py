@@ -262,44 +262,57 @@ def render_sidebar():
                 navigate("landing")
         else:
             st.markdown("SEO 진단을 시작하세요!")
-            st.caption("무료로 가입하면 프로젝트 관리, 자동 모니터링, 인사이트 기능을 이용할 수 있습니다.")
-            st.divider()
-            if st.button("🔑 로그인", use_container_width=True):
-                navigate("login")
-            if st.button("📝 무료 가입", use_container_width=True):
-                navigate("signup")
+            st.caption("무료로 가입하고 시작하세요.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # VIEW: 랜딩 페이지
 # ══════════════════════════════════════════════════════════════════════════════
 def render_landing():
+    # Top navigation with auth buttons
+    tc1, tc2, tc3, tc4 = st.columns([4, 1.5, 1.5, 1])
+    with tc1:
+        st.markdown('<span style="color:#e94560;font-weight:800;font-size:1.3rem;">🔍 SEO Diagnostic Pro</span>', unsafe_allow_html=True)
+    with tc3:
+        if st.button("로그인", use_container_width=True, key="top_login"):
+            navigate("login")
+    with tc4:
+        if st.button("무료 시작", use_container_width=True, type="primary", key="top_signup"):
+            navigate("signup")
+
     # Hero section
     st.markdown("""
-    <div class="landing-hero">
-        <h1>🔍 SEO Diagnostic Pro</h1>
-        <p>AI 기반 SEO 진단 도구 — 사이트의 SEO 건강 상태를 즉시 확인하세요</p>
+    <div style="background:linear-gradient(135deg,#1a1a2e 0%,#16213e 30%,#0f3460 60%,#e94560 200%);padding:80px 20px;border-radius:20px;text-align:center;margin-bottom:30px;">
+        <h1 style="color:#ffffff;font-size:3rem;font-weight:800;margin-bottom:12px;line-height:1.3;">
+            당신의 사이트,<br>검색엔진은 어떻게 보고 있을까요?
+        </h1>
+        <p style="color:#c9d1d9;font-size:1.2rem;margin-bottom:8px;">
+            SEO · 콘텐츠 · 테크니컬 · AI 최적화까지 한 번에 진단하고 개선하세요
+        </p>
+        <p style="color:#8b949e;font-size:.95rem;">
+            지금 바로 무료로 사이트를 분석해보세요 — 가입도 필요 없습니다
+        </p>
     </div>
     """, unsafe_allow_html=True)
 
+    # Quick scan
     st.markdown("")
-    st.markdown("### 🩺 사이트 SEO 건강 점검하기")
     col_url, col_btn = st.columns([4, 1])
     with col_url:
         scan_url = st.text_input(
             "URL 입력",
-            placeholder="https://example.com",
+            placeholder="https://yoursite.com",
             label_visibility="collapsed",
             key="landing_url",
         )
     with col_btn:
-        scan_btn = st.button("▶ 무료 진단", use_container_width=True, type="primary")
+        scan_btn = st.button("무료 진단 시작", use_container_width=True, type="primary")
 
     if scan_btn and scan_url:
         if not scan_url.startswith(("http://", "https://")):
             scan_url = "https://" + scan_url
 
-        with st.spinner("사이트를 분석하고 있습니다..."):
+        with st.spinner("AI가 사이트를 분석하고 있습니다..."):
             result = crawler.quick_scan(scan_url)
 
         if result and not result.get("error", "").strip():
@@ -313,7 +326,7 @@ def render_landing():
             </div>
             """, unsafe_allow_html=True)
 
-            # 5 key metrics — crawler.quick_scan 반환값 기준
+            # Key metrics
             title_ok = result.get("title_len", 0) > 0
             desc_ok = result.get("desc_len", 0) > 0
             https_ok = result.get("is_https", False)
@@ -339,10 +352,10 @@ def render_landing():
                 </div>
                 """, unsafe_allow_html=True)
 
-            # Top 5 issues preview (blurred fixes)
+            # Issues preview
             issues_preview = result.get("issues_preview", [])[:5]
             if issues_preview:
-                st.markdown("### 주요 이슈 미리보기")
+                st.markdown("### 발견된 주요 이슈")
                 for iss in issues_preview:
                     sev = iss.get("severity", "MEDIUM")
                     sev_cls = sev.lower()
@@ -354,7 +367,7 @@ def render_landing():
                             <span style="color:#e6edf3;font-weight:600;margin-left:8px;">{msg}</span>
                         </div>
                         <div class="blurred" style="margin-top:8px;color:#3fb950;font-size:.85rem;">
-                            💡 해결 방법: 무료 가입 후 확인하세요
+                            해결 방법: 무료 가입 후 확인하세요
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
@@ -362,49 +375,94 @@ def render_landing():
             st.markdown("")
             c1, c2, c3 = st.columns([1, 2, 1])
             with c2:
-                if st.button(
-                    "🚀 더 자세한 분석을 원하시면 무료 가입하세요",
-                    use_container_width=True,
-                    type="primary",
-                ):
+                if st.button("무료로 시작하고 상세 분석 받기", use_container_width=True, type="primary", key="cta_signup"):
                     navigate("signup")
         elif result and result.get("error"):
             st.error(f"분석 실패: {result['error']}")
         else:
             st.error("사이트에 접속할 수 없습니다. URL을 확인해주세요.")
 
-    # Feature cards
+    # Why us section
     st.markdown("---")
-    st.markdown("### 가입하면 이런 기능을 사용할 수 있어요")
-    fc1, fc2, fc3, fc4 = st.columns(4)
+    st.markdown("""
+    <div style="text-align:center;margin:30px 0 20px 0;">
+        <h2 style="color:#e6edf3;font-size:1.8rem;">왜 SEO Diagnostic Pro인가요?</h2>
+        <p style="color:#8b949e;font-size:1rem;">전문가 수준의 SEO 분석을 누구나 쉽게</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    fc1, fc2, fc3 = st.columns(3)
     with fc1:
         st.markdown("""
-        <div class="feature-card">
-            <h3>📁 프로젝트 관리</h3>
-            <p>여러 사이트를 한 곳에서 관리하고 진단 결과를 추적하세요</p>
+        <div class="feature-card" style="min-height:180px;">
+            <div style="font-size:2.5rem;margin-bottom:10px;">🔬</div>
+            <h3>200+ 항목 심층 진단</h3>
+            <p>Title, Description, Schema, E-E-A-T, Core Web Vitals, 보안까지 — 검색엔진이 보는 모든 것을 분석합니다</p>
         </div>
         """, unsafe_allow_html=True)
     with fc2:
         st.markdown("""
-        <div class="feature-card">
-            <h3>🤖 자동 모니터링</h3>
-            <p>매일/매주 자동으로 크롤링하고 변화를 감지합니다</p>
+        <div class="feature-card" style="min-height:180px;">
+            <div style="font-size:2.5rem;margin-bottom:10px;">📈</div>
+            <h3>변화 추적 & 인사이트</h3>
+            <p>크롤링마다 변화를 감지하고, Search Console · PageSpeed 데이터를 통합해 실행 가능한 인사이트를 제공합니다</p>
         </div>
         """, unsafe_allow_html=True)
     with fc3:
         st.markdown("""
-        <div class="feature-card">
-            <h3>📈 변화 추적</h3>
-            <p>개선된 점, 새 페이지, 새 이슈를 자동으로 추적합니다</p>
+        <div class="feature-card" style="min-height:180px;">
+            <div style="font-size:2.5rem;margin-bottom:10px;">🤖</div>
+            <h3>AI 시대 SEO 대응</h3>
+            <p>구조화 데이터, 콘텐츠 품질, 기술적 최적화를 통해 AI 검색 시대에도 발견되는 사이트를 만드세요</p>
         </div>
         """, unsafe_allow_html=True)
-    with fc4:
+
+    # How it works
+    st.markdown("---")
+    st.markdown("""
+    <div style="text-align:center;margin:20px 0;">
+        <h2 style="color:#e6edf3;font-size:1.5rem;">3단계로 시작하세요</h2>
+    </div>
+    """, unsafe_allow_html=True)
+
+    s1, s2, s3 = st.columns(3)
+    with s1:
         st.markdown("""
-        <div class="feature-card">
-            <h3>💡 인사이트</h3>
-            <p>콘텐츠 & 테크니컬 데일리 인사이트로 할 일을 파악하세요</p>
+        <div style="text-align:center;padding:20px;">
+            <div style="background:#58a6ff22;width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;font-size:1.5rem;font-weight:800;color:#58a6ff;">1</div>
+            <h4 style="color:#e6edf3;">이메일로 가입</h4>
+            <p style="color:#8b949e;font-size:.85rem;">30초면 끝. 법인 이메일은 프로젝트 5개!</p>
         </div>
         """, unsafe_allow_html=True)
+    with s2:
+        st.markdown("""
+        <div style="text-align:center;padding:20px;">
+            <div style="background:#3fb95022;width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;font-size:1.5rem;font-weight:800;color:#3fb950;">2</div>
+            <h4 style="color:#e6edf3;">사이트 등록 & 크롤링</h4>
+            <p style="color:#8b949e;font-size:.85rem;">URL 입력하면 자동으로 200+ 항목을 진단합니다</p>
+        </div>
+        """, unsafe_allow_html=True)
+    with s3:
+        st.markdown("""
+        <div style="text-align:center;padding:20px;">
+            <div style="background:#e9456022;width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;font-size:1.5rem;font-weight:800;color:#e94560;">3</div>
+            <h4 style="color:#e6edf3;">인사이트 확인 & 개선</h4>
+            <p style="color:#8b949e;font-size:.85rem;">콘텐츠 & 테크니컬 인사이트로 즉시 행동하세요</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Final CTA
+    st.markdown("---")
+    st.markdown("""
+    <div style="text-align:center;padding:40px 20px;">
+        <h2 style="color:#e6edf3;font-size:1.8rem;margin-bottom:8px;">지금 시작하세요</h2>
+        <p style="color:#8b949e;font-size:1rem;margin-bottom:20px;">무료로 사이트를 진단하고, SEO 전문가처럼 개선하세요</p>
+    </div>
+    """, unsafe_allow_html=True)
+    c1, c2, c3 = st.columns([1, 2, 1])
+    with c2:
+        if st.button("무료로 시작하기", use_container_width=True, type="primary", key="bottom_cta"):
+            navigate("signup")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -472,8 +530,6 @@ def _render_google_auth_page(title, subtitle):
             # 이메일 입력 및 인증
             with st.form("auth_form"):
                 auth_email = st.text_input("이메일", placeholder="you@gmail.com 또는 you@company.com")
-
-                # 비밀번호 필드 (법인 이메일 가입/로그인 시 사용)
                 auth_password = st.text_input("비밀번호 (법인 이메일만 해당)", type="password", placeholder="법인 이메일은 비밀번호가 필요합니다")
 
                 submitted = st.form_submit_button(
@@ -489,46 +545,101 @@ def _render_google_auth_page(title, subtitle):
                         auto_name = auth_email.split("@")[0]
 
                         if is_corp:
-                            # 법인 이메일: 비밀번호 필수
                             if not auth_password:
                                 st.error("법인 이메일은 비밀번호를 입력해주세요.")
                             else:
-                                # 기존 사용자인지 확인
+                                # 1. 비밀번호 로그인 시도
                                 existing_user = db.verify_user(auth_email, auth_password)
                                 if existing_user:
-                                    # 로그인 성공
                                     st.session_state.user = existing_user
-                                    st.success(f"🏢 로그인 성공! 프로젝트 {existing_user.get('max_projects', 5)}개 사용 가능")
-                                    time.sleep(1)
+                                    st.success("로그인 성공!")
+                                    time.sleep(0.5)
                                     navigate("dashboard")
                                 else:
-                                    # 새 사용자 가입 시도
+                                    # 2. 이메일이 DB에 존재하는지 확인
+                                    conn = db.get_db()
                                     try:
-                                        user_id = db.create_user(auth_email, auth_password, auto_name)
-                                        user = db.get_user(user_id)
-                                        st.session_state.user = user
-                                        st.success(f"🏢 법인 이메일로 가입 완료! 프로젝트 5개까지 생성 가능합니다.")
-                                        time.sleep(1.5)
+                                        row = conn.execute("SELECT * FROM users WHERE email = ?", (auth_email,)).fetchone()
+                                    finally:
+                                        conn.close()
+
+                                    if row:
+                                        # 기존 사용자가 있음 — 비밀번호 업데이트 (이전에 Google로 가입한 경우)
+                                        pw_hash, salt = db.hash_password(auth_password)
+                                        conn = db.get_db()
+                                        try:
+                                            conn.execute(
+                                                "UPDATE users SET password_hash = ?, salt = ? WHERE email = ?",
+                                                (pw_hash, salt, auth_email)
+                                            )
+                                            conn.commit()
+                                            updated_row = conn.execute("SELECT * FROM users WHERE email = ?", (auth_email,)).fetchone()
+                                            st.session_state.user = dict(updated_row)
+                                        finally:
+                                            conn.close()
+                                        st.success("비밀번호가 설정되었습니다. 로그인 완료!")
+                                        time.sleep(0.5)
                                         navigate("dashboard")
-                                    except ValueError:
-                                        st.error("이미 등록된 이메일입니다. 비밀번호를 확인해주세요.")
+                                    else:
+                                        # 3. 완전 새 사용자
+                                        try:
+                                            user_id = db.create_user(auth_email, auth_password, auto_name)
+                                            user = db.get_user(user_id)
+                                            st.session_state.user = user
+                                            st.success("가입 완료! 프로젝트 5개까지 생성 가능합니다.")
+                                            time.sleep(0.5)
+                                            navigate("dashboard")
+                                        except ValueError:
+                                            st.error("가입 중 오류가 발생했습니다. 다시 시도해주세요.")
                         else:
-                            # 개인 이메일 (Gmail 등): 비밀번호 불필요
+                            # 개인 이메일: 비밀번호 불필요
                             user = db.create_user_google(auth_email, auto_name)
                             st.session_state.user = user
-                            st.info(f"프로젝트 1개 사용 가능합니다. 법인 이메일로 가입하면 5개까지 가능해요!")
-                            time.sleep(1.5)
+                            st.info("프로젝트 1개 사용 가능합니다. 법인 이메일로 가입하면 5개까지!")
+                            time.sleep(0.5)
                             navigate("dashboard")
+
+            # 비밀번호 초기화
+            with st.expander("비밀번호를 잊으셨나요?"):
+                with st.form("reset_pw_form"):
+                    reset_email = st.text_input("등록한 이메일", key="reset_email_input")
+                    new_pw = st.text_input("새 비밀번호", type="password", key="reset_pw_input")
+                    new_pw_confirm = st.text_input("새 비밀번호 확인", type="password", key="reset_pw_confirm")
+                    reset_btn = st.form_submit_button("비밀번호 재설정")
+                    if reset_btn:
+                        if not reset_email or "@" not in reset_email:
+                            st.error("이메일을 입력해주세요.")
+                        elif not new_pw or len(new_pw) < 4:
+                            st.error("비밀번호는 4자 이상 입력해주세요.")
+                        elif new_pw != new_pw_confirm:
+                            st.error("비밀번호가 일치하지 않습니다.")
+                        else:
+                            conn = db.get_db()
+                            try:
+                                row = conn.execute("SELECT * FROM users WHERE email = ?", (reset_email,)).fetchone()
+                            finally:
+                                conn.close()
+                            if row:
+                                pw_hash, salt = db.hash_password(new_pw)
+                                conn = db.get_db()
+                                try:
+                                    conn.execute("UPDATE users SET password_hash = ?, salt = ? WHERE email = ?", (pw_hash, salt, reset_email))
+                                    conn.commit()
+                                finally:
+                                    conn.close()
+                                st.success("비밀번호가 재설정되었습니다. 위 폼에서 로그인하세요.")
+                            else:
+                                st.error("등록되지 않은 이메일입니다.")
 
         # 안내 메시지
         st.markdown("""
         <div style="background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:16px;margin:20px 0;text-align:center;">
             <p style="color:#58a6ff;font-size:.9rem;font-weight:600;margin-bottom:8px;">
-                🏢 법인 이메일로 가입하면 프로젝트 5개!
+                🏢 법인 이메일 = 프로젝트 5개 · 개인 이메일 = 프로젝트 1개
             </p>
             <p style="color:#8b949e;font-size:.82rem;margin:0;">
-                회사 이메일(예: you@company.com)로 가입 시 비밀번호를 설정하고 프로젝트 5개를 사용하세요.<br>
-                개인 이메일(Gmail, Naver 등)은 비밀번호 없이 바로 시작하며 1개 프로젝트를 제공합니다.
+                법인 이메일은 비밀번호를 설정하여 안전하게 로그인합니다.<br>
+                개인 이메일(Gmail, Naver 등)은 이메일만 입력하면 바로 시작됩니다.
             </p>
         </div>
         """, unsafe_allow_html=True)
