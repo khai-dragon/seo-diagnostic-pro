@@ -19,6 +19,50 @@ from datetime import datetime
 from urllib.parse import urlparse, urljoin, urldefrag, parse_qs
 from collections import defaultdict
 
+# Playwright (헤드리스 브라우저) — WAF 차단 사이트 대응
+_PLAYWRIGHT_AVAILABLE = False
+try:
+    from playwright.sync_api import sync_playwright
+    _PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    pass
+
+# Streamlit Cloud 등 서버 환경에서 Playwright 브라우저 자동 설치
+if _PLAYWRIGHT_AVAILABLE:
+    import subprocess
+    try:
+        subprocess.run(
+            ["playwright", "install", "chromium"],
+            capture_output=True, timeout=120
+        )
+    except Exception:
+        pass
+
+
+def _fetch_with_playwright(url, timeout=20):
+    """Playwright 헤드리스 브라우저로 페이지를 가져옵니다. WAF 차단 우회용."""
+    if not _PLAYWRIGHT_AVAILABLE:
+        return None, 0
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                locale="ko-KR",
+                viewport={"width": 1920, "height": 1080},
+            )
+            page = context.new_page()
+            start = time.time()
+            page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
+            # JS 렌더링 대기
+            page.wait_for_timeout(2000)
+            html = page.content()
+            load_time = round(time.time() - start, 2)
+            browser.close()
+            return html, load_time
+    except Exception:
+        return None, 0
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 1. Constants — 설정 상수
@@ -501,16 +545,25 @@ def analyze_page(url, session, crawl_depth=0):
         start = time.time()
         r = session.get(url, timeout=REQUEST_TIMEOUT, allow_redirects=True)
         if r.status_code == 403:
-            session.headers.update({
-                "Referer": url,
-                "DNT": "1",
-            })
+            session.headers.update({"Referer": url, "DNT": "1"})
             r = session.get(url, timeout=REQUEST_TIMEOUT, allow_redirects=True)
         r_dict["Load (s)"] = round(time.time() - start, 2)
         r_dict["Status"] = r.status_code
-        if r.status_code != 200 and not (300 <= r.status_code < 400):
-            return r_dict
-        soup = BeautifulSoup(r.content, "html.parser")
+
+        pw_used = False
+        if r.status_code in (403, 406) and _PLAYWRIGHT_AVAILABLE:
+            # Playwright 헤드리스 브라우저로 재시도
+            pw_html, pw_load = _fetch_with_playwright(url)
+            if pw_html and len(pw_html) > 500:
+                r_dict["Load (s)"] = pw_load
+                r_dict["Status"] = 200
+                soup = BeautifulSoup(pw_html, "html.parser")
+                pw_used = True
+
+        if not pw_used:
+            if r.status_code != 200 and not (300 <= r.status_code < 400):
+                return r_dict
+            soup = BeautifulSoup(r.content, "html.parser")
         tag = soup.find("title")
         if tag and tag.string:
             r_dict["Title"] = tag.string.strip()
@@ -953,33 +1006,40 @@ def quick_scan(url: str) -> dict:
             result["load_time"] = round(time.time() - start3, 2)
 
         if r.status_code != 200:
-            # 403이라도 WAF 페이지에서 일부 정보 추출 시도
-            if r.status_code == 403:
-                result["error"] = ""  # 에러 표시 안 함
-                result["waf_blocked"] = True
-                soup_403 = BeautifulSoup(r.content, "html.parser")
-                title_tag = soup_403.find("title")
-                if title_tag and title_tag.string:
-                    result["title"] = title_tag.string.strip()
-                    result["title_len"] = len(result["title"])
-                # HTTPS, 기본 정보는 수집 가능
-                result["score"] = 0
-                result["issues_preview"] = [{
-                    "severity": "HIGH",
-                    "message": "WAF(웹 방화벽)에 의해 크롤러 접근이 차단되었습니다"
-                }, {
-                    "severity": "MEDIUM",
-                    "message": "robots.txt 또는 WAF 설정으로 인해 자동 수집이 제한됩니다"
-                }, {
-                    "severity": "MEDIUM",
-                    "message": "프로젝트를 만들어 전체 크롤링을 시도하면 더 많은 페이지를 수집할 수 있습니다"
-                }]
-                return result
+            if r.status_code in (403, 406):
+                # Playwright 헤드리스 브라우저로 재시도
+                pw_html, pw_load = _fetch_with_playwright(url)
+                if pw_html and len(pw_html) > 500:
+                    result["load_time"] = pw_load
+                    result["waf_bypassed"] = True
+                    soup = BeautifulSoup(pw_html, "html.parser")
+                    # Playwright 성공 — 아래 정상 분석 흐름으로 진행
+                else:
+                    # Playwright도 실패 — WAF 안내
+                    result["error"] = ""
+                    result["waf_blocked"] = True
+                    soup_403 = BeautifulSoup(r.content, "html.parser")
+                    title_tag = soup_403.find("title")
+                    if title_tag and title_tag.string:
+                        result["title"] = title_tag.string.strip()
+                        result["title_len"] = len(result["title"])
+                    result["score"] = 0
+                    result["issues_preview"] = [{
+                        "severity": "HIGH",
+                        "message": "WAF(웹 방화벽)에 의해 크롤러 접근이 차단되었습니다"
+                    }, {
+                        "severity": "MEDIUM",
+                        "message": "헤드리스 브라우저로도 접근이 차단되었습니다"
+                    }, {
+                        "severity": "MEDIUM",
+                        "message": "프로젝트에서 전체 크롤링을 시도해보세요"
+                    }]
+                    return result
             else:
                 result["error"] = f"HTTP {r.status_code}"
                 return result
-
-        soup = BeautifulSoup(r.content, "html.parser")
+        else:
+            soup = BeautifulSoup(r.content, "html.parser")
 
         # Title
         tag = soup.find("title")
