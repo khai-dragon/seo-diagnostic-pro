@@ -37,10 +37,15 @@ FIELD_NAMES_KR = {
 }
 
 st.set_page_config(
-    page_title="weballin",
-    page_icon="🌐",
+    page_title="weballin — SEO & AI Diagnostic Platform",
+    page_icon="https://em-content.zobj.net/source/apple/391/chart-increasing_1f4c8.png",
     layout="wide",
     initial_sidebar_state="expanded",
+    menu_items={
+        "Get Help": None,
+        "Report a bug": None,
+        "About": None,
+    },
 )
 
 # ── CSS (Semrush-inspired Modern Design) ─────────────────────────────────────
@@ -48,14 +53,44 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
-/* ── Streamlit 기본 UI 숨기기 ── */
-#MainMenu {visibility: hidden;}
-header {visibility: hidden;}
-footer {visibility: hidden;}
-[data-testid="stToolbar"] {display: none !important;}
+/* ── Streamlit 기본 UI 완전 제거 ── */
+/* 메인 메뉴 (햄버거) */
+#MainMenu {display: none !important; visibility: hidden !important; height: 0 !important; overflow: hidden !important;}
+/* 상단 헤더 (전체) */
+header[data-testid="stHeader"] {display: none !important; visibility: hidden !important; height: 0 !important; min-height: 0 !important; max-height: 0 !important; overflow: hidden !important; position: fixed !important;}
+header {display: none !important; visibility: hidden !important; height: 0 !important; min-height: 0 !important;}
+/* 푸터 (Made with Streamlit) */
+footer {display: none !important; visibility: hidden !important; height: 0 !important; overflow: hidden !important;}
+.reportview-container .main footer {display: none !important;}
+/* 툴바 (우측 상단 아이콘들) */
+[data-testid="stToolbar"] {display: none !important; visibility: hidden !important; height: 0 !important; position: fixed !important; z-index: -1 !important;}
+/* Deploy 버튼 */
 [data-testid="manage-app-button"] {display: none !important;}
-[data-testid="stDecoration"] {display: none !important;}
 .stDeployButton {display: none !important;}
+[data-testid="stAppDeployButton"] {display: none !important;}
+/* 장식 라인 (상단 컬러 바) */
+[data-testid="stDecoration"] {display: none !important; height: 0 !important;}
+/* 상태 위젯 (Running...) */
+[data-testid="stStatusWidget"] {display: none !important; visibility: hidden !important; height: 0 !important; position: fixed !important;}
+/* Streamlit 뷰어 배지 */
+.viewerBadge_container__r5tak {display: none !important;}
+.viewerBadge_link__qRIco {display: none !important;}
+/* 소스 코드 링크 / GitHub 링크 */
+[data-testid="stSourceCode"] {display: none !important;}
+a[href*="github.com/streamlit"] {display: none !important;}
+a[href*="streamlit.io"] {display: none !important;}
+/* Streamlit Cloud 하단 "Hosted with Streamlit" 버튼 */
+[data-testid="stBottomBlockContainer"] iframe {display: none !important;}
+._container_gzau3_1 {display: none !important;}
+._link_gzau3_10 {display: none !important;}
+/* 상단 여백 제거 (헤더 숨긴 후 남는 공간) */
+.stApp > header + div, .main .block-container {padding-top: 1rem !important;}
+.stApp [data-testid="stAppViewBlockContainer"] {padding-top: 1rem !important;}
+/* 우클릭 메뉴에서 Streamlit 관련 항목 방지 (간접) */
+[data-testid="stActionButton"] {display: none !important;}
+/* 전체화면 버튼 숨기기 */
+button[title="View fullscreen"] {display: none !important;}
+[data-testid="StyledFullScreenButton"] {display: none !important;}
 
 /* ── 전역 타이포그래피 & 기본 ── */
 html, body, [class*="css"] {
@@ -348,6 +383,53 @@ h1, h2, h3, h4 { color: #f1f5f9 !important; font-weight: 700 !important; letter-
 hr { border-color: #1e293b !important; }
 .stAlert { border-radius: 10px !important; }
 </style>
+""", unsafe_allow_html=True)
+
+# ── Streamlit 흔적 완전 제거 (JS) ──
+st.markdown("""
+<script>
+// Streamlit 요소 제거 (DOM 로드 후)
+(function removeStreamlitBranding() {
+    const selectors = [
+        'header[data-testid="stHeader"]',
+        '[data-testid="stToolbar"]',
+        '[data-testid="stDecoration"]',
+        '[data-testid="stStatusWidget"]',
+        '[data-testid="manage-app-button"]',
+        '[data-testid="stAppDeployButton"]',
+        '.viewerBadge_container__r5tak',
+        'footer',
+        '[data-testid="stSourceCode"]',
+        '[data-testid="StyledFullScreenButton"]',
+    ];
+    function sweep() {
+        selectors.forEach(s => {
+            document.querySelectorAll(s).forEach(el => {
+                el.style.display = 'none';
+                el.style.visibility = 'hidden';
+                el.style.height = '0';
+                el.style.overflow = 'hidden';
+                el.style.position = 'fixed';
+                el.style.zIndex = '-9999';
+            });
+        });
+        // GitHub repo 링크 제거
+        document.querySelectorAll('a').forEach(a => {
+            const href = a.href || '';
+            if (href.includes('streamlit.io') || href.includes('github.com/streamlit')) {
+                a.style.display = 'none';
+            }
+        });
+    }
+    sweep();
+    // MutationObserver로 동적 추가되는 요소도 즉시 제거
+    const obs = new MutationObserver(sweep);
+    obs.observe(document.body, {childList: true, subtree: true});
+    // 주기적 체크 (초기 로딩 시 CSS보다 늦게 렌더되는 요소)
+    let c = 0;
+    const iv = setInterval(() => { sweep(); if (++c > 20) clearInterval(iv); }, 500);
+})();
+</script>
 """, unsafe_allow_html=True)
 
 
