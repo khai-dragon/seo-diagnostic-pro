@@ -38,7 +38,7 @@ FIELD_NAMES_KR = {
 
 st.set_page_config(
     page_title="weballin — SEO & AI Diagnostic Platform",
-    page_icon="https://em-content.zobj.net/source/apple/391/chart-increasing_1f4c8.png",
+    page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={
@@ -383,53 +383,6 @@ h1, h2, h3, h4 { color: #f1f5f9 !important; font-weight: 700 !important; letter-
 hr { border-color: #1e293b !important; }
 .stAlert { border-radius: 10px !important; }
 </style>
-""", unsafe_allow_html=True)
-
-# ── Streamlit 흔적 완전 제거 (JS) ──
-st.markdown("""
-<script>
-// Streamlit 요소 제거 (DOM 로드 후)
-(function removeStreamlitBranding() {
-    const selectors = [
-        'header[data-testid="stHeader"]',
-        '[data-testid="stToolbar"]',
-        '[data-testid="stDecoration"]',
-        '[data-testid="stStatusWidget"]',
-        '[data-testid="manage-app-button"]',
-        '[data-testid="stAppDeployButton"]',
-        '.viewerBadge_container__r5tak',
-        'footer',
-        '[data-testid="stSourceCode"]',
-        '[data-testid="StyledFullScreenButton"]',
-    ];
-    function sweep() {
-        selectors.forEach(s => {
-            document.querySelectorAll(s).forEach(el => {
-                el.style.display = 'none';
-                el.style.visibility = 'hidden';
-                el.style.height = '0';
-                el.style.overflow = 'hidden';
-                el.style.position = 'fixed';
-                el.style.zIndex = '-9999';
-            });
-        });
-        // GitHub repo 링크 제거
-        document.querySelectorAll('a').forEach(a => {
-            const href = a.href || '';
-            if (href.includes('streamlit.io') || href.includes('github.com/streamlit')) {
-                a.style.display = 'none';
-            }
-        });
-    }
-    sweep();
-    // MutationObserver로 동적 추가되는 요소도 즉시 제거
-    const obs = new MutationObserver(sweep);
-    obs.observe(document.body, {childList: true, subtree: true});
-    // 주기적 체크 (초기 로딩 시 CSS보다 늦게 렌더되는 요소)
-    let c = 0;
-    const iv = setInterval(() => { sweep(); if (++c > 20) clearInterval(iv); }, 500);
-})();
-</script>
 """, unsafe_allow_html=True)
 
 
