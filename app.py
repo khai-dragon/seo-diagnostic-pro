@@ -18,6 +18,7 @@ from itertools import groupby
 import database as db
 import crawler
 import google_api
+import scoring_engine as _se
 from datetime import timedelta
 
 # ── 설정 ─────────────────────────────────────────────────────────────────────
@@ -379,8 +380,8 @@ def fmt_time(seconds):
 # ── 사이드바 ──────────────────────────────────────────────────────────────────
 def render_sidebar():
     with st.sidebar:
-        st.markdown("### 🌐 weballin")
-        st.caption("v5.0 — SaaS Edition")
+        st.markdown('<span style="background:linear-gradient(135deg,#6366f1,#a855f7);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-weight:800;font-size:1.3rem;">weballin</span>', unsafe_allow_html=True)
+        st.caption("SEO · AI · Content")
         st.divider()
 
         if st.session_state.user:
@@ -442,7 +443,7 @@ def render_landing():
     # Top navigation with auth buttons
     tc1, tc2, tc3, tc4 = st.columns([4, 1.5, 1.5, 1])
     with tc1:
-        st.markdown('<span style="color:#818cf8;font-weight:800;font-size:1.3rem;">🌐 weballin</span>', unsafe_allow_html=True)
+        st.markdown('<span style="background:linear-gradient(135deg,#6366f1,#a855f7,#ec4899);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-weight:800;font-size:1.4rem;letter-spacing:-.03em;">weballin</span>', unsafe_allow_html=True)
     with tc3:
         if st.button("로그인", use_container_width=True, key="top_login"):
             navigate("login")
@@ -452,15 +453,18 @@ def render_landing():
 
     # Hero section
     st.markdown("""
-    <div style="background:linear-gradient(135deg,#0f172a 0%,#1e1b4b 40%,#312e81 80%,#6366f1 150%);padding:80px 20px;border-radius:20px;text-align:center;margin-bottom:30px;">
-        <h1 style="color:#ffffff;font-size:3rem;font-weight:800;margin-bottom:12px;line-height:1.3;">
-            당신의 사이트,<br>검색엔진은 어떻게 보고 있을까요?
+    <div style="background:linear-gradient(160deg,#0f172a 0%,#1e1b4b 35%,#312e81 65%,#4f46e5 100%);padding:80px 24px;border-radius:24px;text-align:center;margin-bottom:32px;position:relative;overflow:hidden;">
+        <div style="position:absolute;top:-50%;right:-20%;width:400px;height:400px;background:radial-gradient(circle,rgba(139,92,246,.15) 0%,transparent 70%);"></div>
+        <div style="position:absolute;bottom:-30%;left:-10%;width:300px;height:300px;background:radial-gradient(circle,rgba(99,102,241,.1) 0%,transparent 70%);"></div>
+        <p style="color:#818cf8;font-size:.85rem;font-weight:600;letter-spacing:.15em;text-transform:uppercase;margin-bottom:16px;">SEO · AI · CONTENT OPTIMIZATION</p>
+        <h1 style="color:#ffffff;font-size:2.8rem;font-weight:800;margin-bottom:16px;line-height:1.25;letter-spacing:-.03em;position:relative;">
+            검색엔진이 당신의 사이트를<br>어떻게 보는지 알고 계신가요?
         </h1>
-        <p style="color:#c9d1d9;font-size:1.2rem;margin-bottom:8px;">
-            SEO · 콘텐츠 · 테크니컬 · AI 최적화까지 한 번에 진단하고 개선하세요
+        <p style="color:#cbd5e1;font-size:1.15rem;margin-bottom:6px;max-width:600px;margin-left:auto;margin-right:auto;line-height:1.6;">
+            173개 진단 항목으로 SEO · E-E-A-T · AI 검색 최적화를<br>한 번에 분석합니다
         </p>
-        <p style="color:#94a3b8;font-size:.95rem;">
-            지금 바로 무료로 사이트를 분석해보세요 — 가입도 필요 없습니다
+        <p style="color:#64748b;font-size:.88rem;margin-top:12px;">
+            가입 없이 무료 진단 · 30초 안에 결과 확인
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -855,7 +859,7 @@ def render_dashboard():
     user = st.session_state.user
     st.markdown(f"""
     <div class="nav-bar">
-        <span class="brand">🌐 weballin</span>
+        <span class="brand">weballin</span>
         <span class="user-info">{user['name']}님 환영합니다</span>
     </div>
     """, unsafe_allow_html=True)
@@ -963,7 +967,7 @@ def render_project_new():
 
     st.markdown(f"""
     <div class="nav-bar">
-        <span class="brand">🌐 weballin</span>
+        <span class="brand">weballin</span>
         <span class="user-info">새 프로젝트 만들기</span>
     </div>
     """, unsafe_allow_html=True)
@@ -1110,61 +1114,10 @@ def render_project_overview(project):
         schema_count = sum(1 for p in pages if p.get("Has Schema"))
         https_count = sum(1 for p in pages if p.get("HTTPS"))
 
-    # ── 건강 점수 계산 (비율 기반, PageSpeed 방식) ──
-    # 6개 카테고리 × 가중치 = 100점 만점
-    # 각 카테고리는 0~1 비율로 계산 후 가중치를 곱함
-    health_breakdown = {}
-
-    if total_pages > 0:
-        # 1. 치명적 이슈 비율 (30점) — HIGH 이슈가 있는 페이지 비율
-        high_ratio = min(high / total_pages, 1.0)
-        cat1_score = round((1 - high_ratio) * 30)
-        health_breakdown["치명적 이슈"] = {"score": cat1_score, "max": 30,
-            "detail": f"HIGH 이슈 {high}건 / {total_pages} 페이지 (비율 {high_ratio*100:.0f}%)"}
-
-        # 2. 중요 이슈 비율 (20점) — MEDIUM 이슈 비율 (페이지당 평균)
-        med_per_page = med / total_pages
-        med_ratio = min(med_per_page / 3.0, 1.0)  # 페이지당 3건 이상이면 0점
-        cat2_score = round((1 - med_ratio) * 20)
-        health_breakdown["중요 이슈"] = {"score": cat2_score, "max": 20,
-            "detail": f"MEDIUM 이슈 {med}건 (페이지당 평균 {med_per_page:.1f}건)"}
-
-        # 3. 경미한 이슈 비율 (10점) — LOW 이슈 비율
-        low_per_page = low / total_pages
-        low_ratio = min(low_per_page / 5.0, 1.0)  # 페이지당 5건 이상이면 0점
-        cat3_score = round((1 - low_ratio) * 10)
-        health_breakdown["경미한 이슈"] = {"score": cat3_score, "max": 10,
-            "detail": f"LOW 이슈 {low}건 (페이지당 평균 {low_per_page:.1f}건)"}
-
-        # 4. 페이지 속도 (15점)
-        if avg_load <= 1.5:
-            cat4_score = 15
-        elif avg_load <= 3.0:
-            cat4_score = round(15 * (1 - (avg_load - 1.5) / 3.0))
-        elif avg_load <= 6.0:
-            cat4_score = round(5 * (1 - (avg_load - 3.0) / 3.0))
-        else:
-            cat4_score = 0
-        cat4_score = max(0, cat4_score)
-        health_breakdown["페이지 속도"] = {"score": cat4_score, "max": 15,
-            "detail": f"평균 로딩 시간 {avg_load}초"}
-
-        # 5. HTTPS 보안 (15점)
-        https_ratio = https_count / total_pages
-        cat5_score = round(https_ratio * 15)
-        health_breakdown["HTTPS 보안"] = {"score": cat5_score, "max": 15,
-            "detail": f"HTTPS 적용 {https_count}/{total_pages} ({https_ratio*100:.0f}%)"}
-
-        # 6. 구조화 데이터 (10점)
-        schema_ratio = schema_count / total_pages
-        cat6_score = round(min(schema_ratio / 0.7, 1.0) * 10)  # 70% 이상이면 만점
-        health_breakdown["구조화 데이터"] = {"score": cat6_score, "max": 10,
-            "detail": f"Schema 적용 {schema_count}/{total_pages} ({schema_ratio*100:.0f}%)"}
-
-        health_score = sum(v["score"] for v in health_breakdown.values())
-    else:
-        health_score = 0
-    health_score = max(0, min(100, int(health_score)))
+    # ── 건강 점수 계산 ──
+    health_score, health_breakdown, _hsig = _se.compute_health_score(
+        total_pages, high, med, low, avg_load, https_count, schema_count
+    )
 
     if health_score >= 80:
         health_color = "#22c55e"
@@ -2698,118 +2651,11 @@ def render_ai_geo(project):
             if p.get("Status") != 200:
                 continue
             url = p.get("URL", "")
-            h1 = (p.get("H1") or "").strip()
-            title = (p.get("Title") or "").strip()
             words = p.get("Words", 0)
             if words < 50:
-                continue  # 너무 짧은 페이지 제외
+                continue
 
-            # 자동 키워드: H1 우선, 없으면 Title
-            auto_keyword = h1 if h1 else title
-            # 키워드가 너무 길면 앞부분만
-            if len(auto_keyword) > 50:
-                auto_keyword = auto_keyword[:50]
-
-            # 간이 콘텐츠 점수 (저장된 데이터 기반)
-            co_score = 0
-            co_items = []
-
-            # Title에 H1 키워드 포함 여부
-            kw_lower = auto_keyword.lower()
-            if kw_lower and kw_lower in title.lower():
-                co_score += 15
-                co_items.append(("Title 키워드", True))
-            else:
-                co_items.append(("Title 키워드", False))
-
-            # H1 존재
-            if h1:
-                co_score += 10
-                co_items.append(("H1 태그", True))
-            else:
-                co_items.append(("H1 태그", False))
-
-            # Meta Description 존재 및 길이
-            desc = p.get("Meta Desc", "")
-            desc_len = p.get("Desc Len", 0)
-            if desc and 70 <= desc_len <= 160:
-                co_score += 10
-                co_items.append(("Description", True))
-            elif desc:
-                co_score += 5
-                co_items.append(("Description 길이", False))
-            else:
-                co_items.append(("Description", False))
-
-            # 서브헤딩 구조
-            h2s = p.get("H2s", 0)
-            h3s = p.get("H3s", 0)
-            if h2s >= 3:
-                co_score += 10
-                co_items.append(("서브헤딩 구조", True))
-            elif h2s >= 1:
-                co_score += 5
-                co_items.append(("서브헤딩 부족", False))
-            else:
-                co_items.append(("서브헤딩 없음", False))
-
-            # 콘텐츠 길이
-            if words >= 2000:
-                co_score += 10
-            elif words >= 1000:
-                co_score += 7
-            elif words >= 500:
-                co_score += 4
-            co_items.append(("콘텐츠 길이", words >= 1000))
-
-            # 이미지
-            imgs = p.get("Images", 0)
-            if imgs >= 3:
-                co_score += 10
-            elif imgs >= 1:
-                co_score += 5
-            co_items.append(("이미지", imgs >= 1))
-
-            # 내부 링크
-            int_links = len(p.get("_internal_links", []))
-            if int_links >= 5:
-                co_score += 5
-            elif int_links >= 2:
-                co_score += 3
-            co_items.append(("내부 링크", int_links >= 3))
-
-            # 외부 링크
-            ext_links = p.get("Ext Links", 0)
-            if ext_links >= 2:
-                co_score += 5
-            co_items.append(("외부 인용", ext_links >= 1))
-
-            # Schema
-            if p.get("Has Schema"):
-                co_score += 5
-                co_items.append(("구조화 데이터", True))
-            else:
-                co_items.append(("구조화 데이터", False))
-
-            # HTTPS
-            if p.get("HTTPS"):
-                co_score += 5
-
-            # Title 길이
-            title_len = p.get("Title Len", 0)
-            if 30 <= title_len <= 60:
-                co_score += 5
-                co_items.append(("Title 길이", True))
-            else:
-                co_items.append(("Title 길이", False))
-
-            # URL 길이 합리적
-            path = urlparse(url).path
-            if len(path) <= 80:
-                co_score += 5
-            co_items.append(("URL 구조", len(path) <= 80))
-
-            co_score = min(co_score, 100)
+            co_score, co_items, auto_keyword = _se.compute_content_score(p)
 
             content_pages.append({
                 "url": url,
@@ -2817,8 +2663,8 @@ def render_ai_geo(project):
                 "score": co_score,
                 "words": words,
                 "items": co_items,
-                "h1": h1,
-                "title": title,
+                "h1": (p.get("H1") or "").strip(),
+                "title": (p.get("Title") or "").strip(),
             })
 
         # 점수순 정렬
@@ -2938,230 +2784,8 @@ def render_ai_geo(project):
 
 
 def _estimate_ai_readiness(page_data):
-    """
-    크롤 데이터에서 AI 준비도를 추정합니다.
-    (실제 soup 없이 저장된 데이터만으로 계산)
-    각 차원별 점수 + 상세 항목(✅/❌)을 반환합니다.
-    """
-    score = 0
-    dim_details = {}  # {차원명: {"score": n, "max": m, "items": [...]}}
-
-    eeat = page_data.get("_eeat") or {}
-    if not isinstance(eeat, dict): eeat = {}
-    schema = page_data.get("_schema") or {}
-    if not isinstance(schema, dict): schema = {}
-    tech = page_data.get("_tech") or {}
-    if not isinstance(tech, dict): tech = {}
-    content = page_data.get("_content") or {}
-    if not isinstance(content, dict): content = {}
-
-    # ── 1. 인용 준비도 (25점) ──
-    cr = 0
-    cr_items = []
-    wc = page_data.get("Words", 0)
-    if wc >= 1500:
-        cr += 10
-        cr_items.append(f"✅ 콘텐츠 길이 충분 ({wc}단어)")
-    elif wc >= 800:
-        cr += 6
-        cr_items.append(f"⚠️ 콘텐츠 보통 ({wc}단어, 1500+ 권장)")
-    elif wc >= 300:
-        cr += 3
-        cr_items.append(f"❌ 콘텐츠 부족 ({wc}단어, 1500+ 권장)")
-    else:
-        cr_items.append(f"❌ 콘텐츠 매우 짧음 ({wc}단어)")
-
-    img_count = page_data.get("Images", 0)
-    if img_count >= 3:
-        cr += 5
-        cr_items.append(f"✅ 이미지 풍부 ({img_count}개)")
-    elif img_count >= 1:
-        cr += 2
-        cr_items.append(f"⚠️ 이미지 부족 ({img_count}개, 3개+ 권장)")
-    else:
-        cr_items.append("❌ 이미지 없음")
-
-    ext_links = page_data.get("Ext Links", 0)
-    if ext_links >= 3:
-        cr += 5
-        cr_items.append(f"✅ 외부 인용 링크 충분 ({ext_links}개)")
-    elif ext_links >= 1:
-        cr += 3
-        cr_items.append(f"⚠️ 외부 인용 부족 ({ext_links}개, 3개+ 권장)")
-    else:
-        cr_items.append("❌ 외부 인용 링크 없음 — 신뢰성 저하")
-
-    thr = page_data.get("Text/HTML %", 0)
-    if thr >= 30:
-        cr += 5
-        cr_items.append(f"✅ 텍스트 비율 양호 ({thr:.0f}%)")
-    elif thr >= 15:
-        cr += 3
-        cr_items.append(f"⚠️ 텍스트 비율 보통 ({thr:.0f}%, 30%+ 권장)")
-    else:
-        cr_items.append(f"❌ 텍스트 비율 낮음 ({thr:.0f}%)")
-    cr_val = min(cr, 25)
-    score += cr_val
-    dim_details["인용 준비도"] = {"score": cr_val, "max": 25, "items": cr_items}
-
-    # ── 2. 답변 적합성 (20점) ──
-    aa = 0
-    aa_items = []
-    total_headings = sum(page_data.get(f"H{i}s", 0) for i in range(2, 4))
-    if total_headings >= 5:
-        aa += 8
-        aa_items.append(f"✅ 서브헤딩 구조 풍부 (H2/H3 {total_headings}개)")
-    elif total_headings >= 3:
-        aa += 5
-        aa_items.append(f"⚠️ 서브헤딩 보통 (H2/H3 {total_headings}개, 5개+ 권장)")
-    elif total_headings >= 1:
-        aa += 3
-        aa_items.append(f"❌ 서브헤딩 부족 (H2/H3 {total_headings}개)")
-    else:
-        aa_items.append("❌ H2/H3 서브헤딩 없음 — AI가 답변 구조를 파악하기 어려움")
-
-    if tech.get("heading_hierarchy_ok"):
-        aa += 6
-        aa_items.append("✅ 헤딩 계층 구조 정상")
-    else:
-        aa_items.append("❌ 헤딩 계층 구조 오류 — H1→H2→H3 순서 권장")
-
-    if wc >= 500:
-        aa += 6
-        aa_items.append("✅ 답변에 충분한 콘텐츠 분량")
-    else:
-        aa_items.append("❌ 콘텐츠가 너무 짧아 AI 답변 소스로 부적합")
-    aa_val = min(aa, 20)
-    score += aa_val
-    dim_details["답변 적합성"] = {"score": aa_val, "max": 20, "items": aa_items}
-
-    # ── 3. 콘텐츠 권위 (20점) ──
-    ca = 0
-    ca_items = []
-    if eeat.get("has_author"):
-        ca += 7
-        ca_items.append("✅ 저자 정보 명시")
-    else:
-        ca_items.append("❌ 저자 정보 없음 — 전문성 판단 불가")
-
-    if eeat.get("has_published_date"):
-        ca += 5
-        ca_items.append("✅ 발행일 명시")
-    else:
-        ca_items.append("❌ 발행일 없음 — 최신성 판단 불가")
-
-    if eeat.get("has_modified_date"):
-        ca += 4
-        ca_items.append("✅ 수정일 명시 (최신 콘텐츠 신호)")
-    else:
-        ca_items.append("⚠️ 수정일 없음 — 업데이트 여부 알 수 없음")
-
-    if ext_links >= 2:
-        ca += 4
-        ca_items.append("✅ 외부 출처 인용으로 권위 강화")
-    else:
-        ca_items.append("❌ 외부 출처 인용 부족")
-    ca_val = min(ca, 20)
-    score += ca_val
-    dim_details["콘텐츠 권위"] = {"score": ca_val, "max": 20, "items": ca_items}
-
-    # ── 4. 지식 그래프 연동 (15점) ──
-    kg = 0
-    kg_items = []
-    all_types = schema.get("all_types", [])
-    if not isinstance(all_types, list): all_types = []
-
-    if schema.get("has_schema"):
-        kg += 4
-        kg_items.append(f"✅ 구조화 데이터 존재 ({', '.join(all_types[:5])})")
-    else:
-        kg_items.append("❌ 구조화 데이터 없음 — Knowledge Graph 연동 불가")
-
-    if "FAQPage" in all_types:
-        kg += 5
-        kg_items.append("✅ FAQPage 스키마 (AI 인용률 +41%)")
-    else:
-        kg_items.append("⚠️ FAQPage 스키마 없음 — FAQ 콘텐츠가 있다면 추가 권장")
-
-    if any(t in all_types for t in ("Article", "BlogPosting", "NewsArticle")):
-        kg += 3
-        kg_items.append("✅ Article 스키마")
-    else:
-        kg_items.append("⚠️ Article 스키마 없음")
-
-    if "BreadcrumbList" in all_types:
-        kg += 3
-        kg_items.append("✅ BreadcrumbList 스키마")
-    kg_val = min(kg, 15)
-    score += kg_val
-    dim_details["지식 그래프 연동"] = {"score": kg_val, "max": 15, "items": kg_items}
-
-    # ── 5. 기술적 접근성 (10점) ──
-    ta = 0
-    ta_items = []
-    if not tech.get("is_noindex"):
-        ta += 3
-        ta_items.append("✅ 인덱싱 허용")
-    else:
-        ta_items.append("❌ noindex 설정 — AI 검색 노출 불가")
-
-    if tech.get("heading_hierarchy_ok"):
-        ta += 3
-        ta_items.append("✅ 헤딩 계층 구조 정상")
-    else:
-        ta_items.append("❌ 헤딩 계층 오류")
-
-    if tech.get("has_viewport"):
-        ta += 2
-        ta_items.append("✅ 모바일 뷰포트 설정")
-    else:
-        ta_items.append("⚠️ 뷰포트 메타태그 없음")
-
-    if tech.get("lang"):
-        ta += 2
-        ta_items.append(f"✅ 언어 명시: {tech['lang']}")
-    else:
-        ta_items.append("❌ html lang 속성 없음")
-    ta_val = min(ta, 10)
-    score += ta_val
-    dim_details["기술적 접근성"] = {"score": ta_val, "max": 10, "items": ta_items}
-
-    # ── 6. 차별화 (10점) ──
-    di = 0
-    di_items = []
-    if wc >= 2000:
-        di += 4
-        di_items.append(f"✅ 심층 콘텐츠 ({wc}단어)")
-    elif wc >= 1000:
-        di += 2
-        di_items.append(f"⚠️ 콘텐츠 길이 보통 ({wc}단어, 2000+ 권장)")
-    else:
-        di_items.append(f"❌ 콘텐츠 짧음 — 경쟁 콘텐츠 대비 차별화 어려움")
-
-    if img_count >= 3:
-        di += 3
-        di_items.append(f"✅ 시각 자료 풍부 ({img_count}개 이미지)")
-    else:
-        di_items.append("⚠️ 시각 자료 부족 — 이미지/인포그래픽 추가 권장")
-
-    if page_data.get("Has Schema"):
-        di += 3
-        di_items.append("✅ 구조화 데이터로 차별화")
-    else:
-        di_items.append("❌ Schema 없음")
-    di_val = min(di, 10)
-    score += di_val
-    dim_details["차별화"] = {"score": di_val, "max": 10, "items": di_items}
-
-    total = min(score, 100)
-    if total >= 70:
-        grade_kr = "AI-Ready"
-    elif total >= 50:
-        grade_kr = "개선 필요"
-    else:
-        grade_kr = "최적화 필요"
-
-    return {"score": total, "grade_kr": grade_kr, "details": dim_details}
+    """AI 준비도 추정 — scoring_engine 위임."""
+    return _se.compute_ai_readiness(page_data)
 
 
 # ── 프로젝트 설정 ──────────────────────────────────────────────────────────
