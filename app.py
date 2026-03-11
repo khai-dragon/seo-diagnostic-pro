@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SEO Diagnostic Pro v5 — SaaS-style SEO Diagnostic Tool
+weballin v5 — SaaS-style SEO Diagnostic Tool
 프로젝트 관리 · 자동 모니터링 · 변화 추적 · 콘텐츠 & 테크니컬 인사이트
 """
 
@@ -36,8 +36,8 @@ FIELD_NAMES_KR = {
 }
 
 st.set_page_config(
-    page_title="SEO Diagnostic Pro",
-    page_icon="🔍",
+    page_title="weballin",
+    page_icon="🌐",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -45,6 +45,15 @@ st.set_page_config(
 # ── CSS ──────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
+/* Streamlit 기본 UI 숨기기 (share, star, manage app, 햄버거 메뉴) */
+#MainMenu {visibility: hidden;}
+header {visibility: hidden;}
+footer {visibility: hidden;}
+[data-testid="stToolbar"] {display: none !important;}
+[data-testid="manage-app-button"] {display: none !important;}
+[data-testid="stDecoration"] {display: none !important;}
+.stDeployButton {display: none !important;}
+
 /* Original v4 styles */
 .sf-header{background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);padding:12px 20px;border-radius:8px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between}
 .sf-header h1{color:#e94560;font-size:1.4rem;margin:0;font-weight:700}
@@ -209,7 +218,7 @@ def fmt_time(seconds):
 # ── 사이드바 ──────────────────────────────────────────────────────────────────
 def render_sidebar():
     with st.sidebar:
-        st.markdown("### 🔍 SEO Diagnostic Pro")
+        st.markdown("### 🌐 weballin")
         st.caption("v5.0 — SaaS Edition")
         st.divider()
 
@@ -272,7 +281,7 @@ def render_landing():
     # Top navigation with auth buttons
     tc1, tc2, tc3, tc4 = st.columns([4, 1.5, 1.5, 1])
     with tc1:
-        st.markdown('<span style="color:#e94560;font-weight:800;font-size:1.3rem;">🔍 SEO Diagnostic Pro</span>', unsafe_allow_html=True)
+        st.markdown('<span style="color:#e94560;font-weight:800;font-size:1.3rem;">🌐 weballin</span>', unsafe_allow_html=True)
     with tc3:
         if st.button("로그인", use_container_width=True, key="top_login"):
             navigate("login")
@@ -399,7 +408,7 @@ def render_landing():
     st.markdown("---")
     st.markdown("""
     <div style="text-align:center;margin:30px 0 20px 0;">
-        <h2 style="color:#e6edf3;font-size:1.8rem;">왜 SEO Diagnostic Pro인가요?</h2>
+        <h2 style="color:#e6edf3;font-size:1.8rem;">왜 weballin인가요?</h2>
         <p style="color:#8b949e;font-size:1rem;">전문가 수준의 SEO 분석을 누구나 쉽게</p>
     </div>
     """, unsafe_allow_html=True)
@@ -685,7 +694,7 @@ def render_dashboard():
     user = st.session_state.user
     st.markdown(f"""
     <div class="nav-bar">
-        <span class="brand">🔍 SEO Diagnostic Pro</span>
+        <span class="brand">🌐 weballin</span>
         <span class="user-info">{user['name']}님 환영합니다</span>
     </div>
     """, unsafe_allow_html=True)
@@ -793,7 +802,7 @@ def render_project_new():
 
     st.markdown(f"""
     <div class="nav-bar">
-        <span class="brand">🔍 SEO Diagnostic Pro</span>
+        <span class="brand">🌐 weballin</span>
         <span class="user-info">새 프로젝트 만들기</span>
     </div>
     """, unsafe_allow_html=True)
