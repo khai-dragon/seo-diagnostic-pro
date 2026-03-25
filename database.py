@@ -22,8 +22,8 @@ def _get_db_params() -> dict:
         import streamlit as st
         return {
             "host": st.secrets["DB_HOST"],
-            "port": int(st.secrets.get("DB_PORT", 6543)),
-            "dbname": st.secrets.get("DB_NAME", "postgres"),
+            "port": int(st.secrets.get("DB_PORT", 5432)),
+            "dbname": st.secrets.get("DB_NAME", "neondb"),
             "user": st.secrets["DB_USER"],
             "password": st.secrets["DB_PASSWORD"],
             "sslmode": "require",
@@ -34,8 +34,8 @@ def _get_db_params() -> dict:
     if host:
         return {
             "host": host,
-            "port": int(os.environ.get("DB_PORT", 6543)),
-            "dbname": os.environ.get("DB_NAME", "postgres"),
+            "port": int(os.environ.get("DB_PORT", 5432)),
+            "dbname": os.environ.get("DB_NAME", "neondb"),
             "user": os.environ.get("DB_USER", ""),
             "password": os.environ.get("DB_PASSWORD", ""),
             "sslmode": "require",
@@ -45,8 +45,7 @@ def _get_db_params() -> dict:
 
 def get_db():
     """데이터베이스 연결을 반환합니다."""
-    params = _get_db_params()
-    conn = psycopg2.connect(**params, connect_timeout=10)
+    conn = psycopg2.connect(**_get_db_params(), connect_timeout=10)
     return conn
 
 
