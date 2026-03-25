@@ -15,6 +15,7 @@ from urllib.parse import urlparse, urljoin, urldefrag, parse_qs
 from collections import defaultdict
 from itertools import groupby
 
+import psycopg2.extras
 import database as db
 import crawler
 import google_api
@@ -781,7 +782,9 @@ def _render_google_auth_page(title, subtitle):
                                     # 2. 이메일이 DB에 존재하는지 확인
                                     conn = db.get_db()
                                     try:
-                                        row = conn.execute("SELECT * FROM users WHERE email = ?", (auth_email,)).fetchone()
+                                        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                                        cur.execute("SELECT * FROM users WHERE email = %s", (auth_email,))
+                                        row = cur.fetchone()
                                     finally:
                                         conn.close()
 
@@ -790,12 +793,14 @@ def _render_google_auth_page(title, subtitle):
                                         pw_hash, salt = db.hash_password(auth_password)
                                         conn = db.get_db()
                                         try:
-                                            conn.execute(
-                                                "UPDATE users SET password_hash = ?, salt = ? WHERE email = ?",
+                                            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                                            cur.execute(
+                                                "UPDATE users SET password_hash = %s, salt = %s WHERE email = %s",
                                                 (pw_hash, salt, auth_email)
                                             )
                                             conn.commit()
-                                            updated_row = conn.execute("SELECT * FROM users WHERE email = ?", (auth_email,)).fetchone()
+                                            cur.execute("SELECT * FROM users WHERE email = %s", (auth_email,))
+                                            updated_row = cur.fetchone()
                                             st.session_state.user = dict(updated_row)
                                         finally:
                                             conn.close()
@@ -838,14 +843,17 @@ def _render_google_auth_page(title, subtitle):
                         else:
                             conn = db.get_db()
                             try:
-                                row = conn.execute("SELECT * FROM users WHERE email = ?", (reset_email,)).fetchone()
+                                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                                cur.execute("SELECT * FROM users WHERE email = %s", (reset_email,))
+                                row = cur.fetchone()
                             finally:
                                 conn.close()
                             if row:
                                 pw_hash, salt = db.hash_password(new_pw)
                                 conn = db.get_db()
                                 try:
-                                    conn.execute("UPDATE users SET password_hash = ?, salt = ? WHERE email = ?", (pw_hash, salt, reset_email))
+                                    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                                    cur.execute("UPDATE users SET password_hash = %s, salt = %s WHERE email = %s", (pw_hash, salt, reset_email))
                                     conn.commit()
                                 finally:
                                     conn.close()

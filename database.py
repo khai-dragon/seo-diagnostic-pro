@@ -1,55 +1,84 @@
 """
-SEO Diagnostic Pro - SQLite 데이터베이스 레이어
+SEO Diagnostic Pro - PostgreSQL(Supabase) 데이터베이스 레이어
 사용자, 프로젝트, 크롤링 실행, 페이지 데이터, 인사이트를 관리합니다.
 """
 from __future__ import annotations
 
-import sqlite3
+import psycopg2
+import psycopg2.extras
 import hashlib
 import secrets
 import json
 import os
 from datetime import datetime
-from pathlib import Path
 
 # ─────────────────────────────────────────────
-# DB 경로 설정
+# DB 연결 설정
 # ─────────────────────────────────────────────
-DB_DIR = Path.home() / ".seo-diagnostic-pro"
-DB_PATH = DB_DIR / "seodiag.db"
+
+def _get_database_url() -> str:
+    """Streamlit secrets 또는 환경변수에서 DB URL을 가져옵니다."""
+    # 1) Streamlit secrets (배포 환경)
+    try:
+        import streamlit as st
+        return st.secrets["DATABASE_URL"]
+    except Exception:
+        pass
+    # 2) 환경변수
+    url = os.environ.get("DATABASE_URL", "")
+    if url:
+        return url
+    raise RuntimeError("DATABASE_URL이 설정되지 않았습니다. .streamlit/secrets.toml 또는 환경변수를 확인하세요.")
 
 
-def get_db() -> sqlite3.Connection:
-    """데이터베이스 연결을 반환합니다. Row 팩토리를 dict로 설정합니다."""
-    DB_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
+def get_db():
+    """데이터베이스 연결을 반환합니다. RealDictCursor를 사용합니다."""
+    conn = psycopg2.connect(_get_database_url())
     return conn
+
+
+def _dict_row(cursor):
+    """커서에서 dict 형태로 한 행을 가져옵니다."""
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
+def _dict_rows(cursor):
+    """커서에서 dict 리스트로 모든 행을 가져옵니다."""
+    return [dict(r) for r in cursor.fetchall()]
+
+
+def _cursor(conn):
+    """RealDictCursor를 반환합니다."""
+    return conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
 
 def init_db():
     """테이블이 없으면 자동으로 생성합니다."""
     conn = get_db()
-    cursor = conn.cursor()
+    cur = _cursor(conn)
 
-    cursor.executescript("""
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             email TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL DEFAULT '',
             salt TEXT NOT NULL DEFAULT '',
             name TEXT NOT NULL,
             profile_image TEXT DEFAULT '',
             auth_provider TEXT DEFAULT 'google',
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             plan TEXT DEFAULT 'free',
             max_projects INTEGER DEFAULT 1
-        );
+        )
+    """)
 
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS projects (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
             name TEXT NOT NULL,
             url TEXT NOT NULL,
             crawl_mode TEXT DEFAULT 'full',
@@ -59,14 +88,15 @@ def init_db():
             schedule TEXT DEFAULT 'manual',
             schedule_time TEXT DEFAULT '09:00',
             respect_robots TEXT DEFAULT 'respect',
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            last_crawl_at TEXT,
-            FOREIGN KEY (user_id) REFERENCES users(id)
-        );
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_crawl_at TEXT
+        )
+    """)
 
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS crawl_runs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_id INTEGER NOT NULL,
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES projects(id),
             started_at TEXT,
             completed_at TEXT,
             total_pages INTEGER DEFAULT 0,
@@ -76,13 +106,14 @@ def init_db():
             total_issues INTEGER DEFAULT 0,
             status TEXT DEFAULT 'pending',
             pages_json TEXT,
-            issues_json TEXT,
-            FOREIGN KEY (project_id) REFERENCES projects(id)
-        );
+            issues_json TEXT
+        )
+    """)
 
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS insights (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            crawl_run_id INTEGER NOT NULL,
+            id SERIAL PRIMARY KEY,
+            crawl_run_id INTEGER NOT NULL REFERENCES crawl_runs(id),
             project_id INTEGER NOT NULL,
             category TEXT NOT NULL,
             insight_type TEXT NOT NULL,
@@ -90,25 +121,25 @@ def init_db():
             detail TEXT,
             url TEXT,
             severity TEXT,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (crawl_run_id) REFERENCES crawl_runs(id)
-        );
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
-        -- Search Console 연결 정보
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS sc_connections (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_id INTEGER NOT NULL UNIQUE,
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL UNIQUE REFERENCES projects(id),
             credentials_json TEXT NOT NULL,
             site_url TEXT NOT NULL,
-            connected_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            last_sync_at TEXT,
-            FOREIGN KEY (project_id) REFERENCES projects(id)
-        );
+            connected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_sync_at TEXT
+        )
+    """)
 
-        -- Search Console 데이터 (일별 집계)
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS sc_analytics (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_id INTEGER NOT NULL,
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES projects(id),
             date TEXT NOT NULL,
             url TEXT,
             query TEXT,
@@ -118,28 +149,28 @@ def init_db():
             position REAL DEFAULT 0.0,
             device TEXT DEFAULT '',
             country TEXT DEFAULT '',
-            synced_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (project_id) REFERENCES projects(id)
-        );
+            synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
-        -- Search Console 인덱싱 이슈
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS sc_issues (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_id INTEGER NOT NULL,
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES projects(id),
             url TEXT NOT NULL,
             issue_type TEXT NOT NULL,
             severity TEXT DEFAULT 'MEDIUM',
             detail TEXT,
-            first_detected TEXT DEFAULT CURRENT_TIMESTAMP,
-            last_detected TEXT DEFAULT CURRENT_TIMESTAMP,
-            resolved_at TEXT,
-            FOREIGN KEY (project_id) REFERENCES projects(id)
-        );
+            first_detected TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_detected TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            resolved_at TEXT
+        )
+    """)
 
-        -- PageSpeed 데이터
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS pagespeed_data (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_id INTEGER NOT NULL,
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES projects(id),
             crawl_run_id INTEGER,
             url TEXT NOT NULL,
             strategy TEXT DEFAULT 'mobile',
@@ -152,15 +183,15 @@ def init_db():
             tbt REAL DEFAULT 0.0,
             opportunities_json TEXT,
             diagnostics_json TEXT,
-            measured_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (project_id) REFERENCES projects(id)
-        );
+            measured_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
-        -- 페이지 스냅샷 (히스토리 추적용)
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS page_snapshots (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_id INTEGER NOT NULL,
-            crawl_run_id INTEGER NOT NULL,
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES projects(id),
+            crawl_run_id INTEGER NOT NULL REFERENCES crawl_runs(id),
             url TEXT NOT NULL,
             title TEXT DEFAULT '',
             meta_description TEXT DEFAULT '',
@@ -172,125 +203,42 @@ def init_db():
             canonical_url TEXT DEFAULT '',
             is_https INTEGER DEFAULT 0,
             load_time REAL DEFAULT 0.0,
-            snapshot_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (project_id) REFERENCES projects(id),
-            FOREIGN KEY (crawl_run_id) REFERENCES crawl_runs(id)
-        );
+            snapshot_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
-        -- 페이지 변경 기록
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS page_changes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_id INTEGER NOT NULL,
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES projects(id),
             url TEXT NOT NULL,
             field_name TEXT NOT NULL,
             old_value TEXT DEFAULT '',
             new_value TEXT DEFAULT '',
-            crawl_run_id INTEGER NOT NULL,
-            detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (project_id) REFERENCES projects(id),
-            FOREIGN KEY (crawl_run_id) REFERENCES crawl_runs(id)
-        );
-
-        -- 인덱스
-        CREATE INDEX IF NOT EXISTS idx_sc_analytics_project_date ON sc_analytics(project_id, date);
-        CREATE INDEX IF NOT EXISTS idx_sc_analytics_url ON sc_analytics(project_id, url);
-        CREATE INDEX IF NOT EXISTS idx_pagespeed_project_url ON pagespeed_data(project_id, url);
-        CREATE INDEX IF NOT EXISTS idx_snapshots_project_url ON page_snapshots(project_id, url);
-        CREATE INDEX IF NOT EXISTS idx_changes_project_url ON page_changes(project_id, url);
-
-        CREATE TABLE IF NOT EXISTS excluded_urls (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_id INTEGER NOT NULL,
-            url_pattern TEXT NOT NULL,
-            reason TEXT DEFAULT '',
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (project_id) REFERENCES projects(id)
-        );
+            crawl_run_id INTEGER NOT NULL REFERENCES crawl_runs(id),
+            detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
     """)
 
-    conn.commit()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS excluded_urls (
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES projects(id),
+            url_pattern TEXT NOT NULL,
+            reason TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
-    # 기존 DB 마이그레이션: 새 컬럼 추가
-    try:
-        cursor.execute("ALTER TABLE users ADD COLUMN profile_image TEXT DEFAULT ''")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE users ADD COLUMN auth_provider TEXT DEFAULT 'google'")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE users ADD COLUMN max_projects INTEGER DEFAULT 1")
-    except sqlite3.OperationalError:
-        pass
-
-    # sc_connections 마이그레이션
-    try:
-        cursor.execute("ALTER TABLE sc_connections ADD COLUMN last_sync_at TEXT")
-    except sqlite3.OperationalError:
-        pass
-
-    # sc_analytics 마이그레이션
-    try:
-        cursor.execute("ALTER TABLE sc_analytics ADD COLUMN device TEXT DEFAULT ''")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE sc_analytics ADD COLUMN country TEXT DEFAULT ''")
-    except sqlite3.OperationalError:
-        pass
-
-    # sc_issues 마이그레이션
-    try:
-        cursor.execute("ALTER TABLE sc_issues ADD COLUMN resolved_at TEXT")
-    except sqlite3.OperationalError:
-        pass
-
-    # pagespeed_data 마이그레이션
-    try:
-        cursor.execute("ALTER TABLE pagespeed_data ADD COLUMN ttfb REAL DEFAULT 0.0")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE pagespeed_data ADD COLUMN si REAL DEFAULT 0.0")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE pagespeed_data ADD COLUMN tbt REAL DEFAULT 0.0")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE pagespeed_data ADD COLUMN diagnostics_json TEXT")
-    except sqlite3.OperationalError:
-        pass
-
-    # page_snapshots 마이그레이션
-    try:
-        cursor.execute("ALTER TABLE page_snapshots ADD COLUMN schema_types TEXT DEFAULT ''")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE page_snapshots ADD COLUMN has_canonical INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE page_snapshots ADD COLUMN canonical_url TEXT DEFAULT ''")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE page_snapshots ADD COLUMN is_https INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE page_snapshots ADD COLUMN load_time REAL DEFAULT 0.0")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE projects ADD COLUMN respect_robots TEXT DEFAULT 'respect'")
-    except sqlite3.OperationalError:
-        pass
+    # 인덱스
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_sc_analytics_project_date ON sc_analytics(project_id, date)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_sc_analytics_url ON sc_analytics(project_id, url)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_pagespeed_project_url ON pagespeed_data(project_id, url)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_project_url ON page_snapshots(project_id, url)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_changes_project_url ON page_changes(project_id, url)")
 
     conn.commit()
+    cur.close()
     conn.close()
 
 
@@ -334,15 +282,18 @@ def create_user(email: str, password: str, name: str) -> int:
     """새 사용자를 생성합니다. 이미 존재하는 이메일이면 ValueError를 발생시킵니다."""
     conn = get_db()
     try:
+        cur = _cursor(conn)
         pw_hash, salt = hash_password(password)
         max_proj = get_max_projects_for_email(email)
-        cursor = conn.execute(
-            "INSERT INTO users (email, password_hash, salt, name, max_projects) VALUES (?, ?, ?, ?, ?)",
+        cur.execute(
+            "INSERT INTO users (email, password_hash, salt, name, max_projects) VALUES (%s, %s, %s, %s, %s) RETURNING id",
             (email, pw_hash, salt, name, max_proj),
         )
+        row = cur.fetchone()
         conn.commit()
-        return cursor.lastrowid
-    except sqlite3.IntegrityError:
+        return row["id"]
+    except psycopg2.IntegrityError:
+        conn.rollback()
         raise ValueError(f"이미 등록된 이메일입니다: {email}")
     finally:
         conn.close()
@@ -351,19 +302,23 @@ def create_user_google(email: str, name: str, profile_image: str = "") -> dict:
     """Google OAuth로 사용자를 생성하거나, 이미 존재하면 기존 사용자를 반환합니다."""
     conn = get_db()
     try:
-        row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        cur = _cursor(conn)
+        cur.execute("SELECT * FROM users WHERE email = %s", (email,))
+        row = cur.fetchone()
         if row:
             return dict(row)
         max_proj = get_max_projects_for_email(email)
         plan = "business" if is_corporate_email(email) else "free"
-        cursor = conn.execute(
+        cur.execute(
             """INSERT INTO users (email, name, profile_image, auth_provider, plan, max_projects)
-               VALUES (?, ?, ?, 'google', ?, ?)""",
+               VALUES (%s, %s, %s, 'google', %s, %s) RETURNING id""",
             (email, name, profile_image, plan, max_proj),
         )
+        new_row = cur.fetchone()
         conn.commit()
-        user_id = cursor.lastrowid
-        return dict(conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone())
+        user_id = new_row["id"]
+        cur.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+        return dict(cur.fetchone())
     finally:
         conn.close()
 
@@ -371,7 +326,9 @@ def get_project_count(user_id: int) -> int:
     """사용자의 현재 프로젝트 수를 반환합니다."""
     conn = get_db()
     try:
-        row = conn.execute("SELECT COUNT(*) as cnt FROM projects WHERE user_id = ?", (user_id,)).fetchone()
+        cur = _cursor(conn)
+        cur.execute("SELECT COUNT(*) as cnt FROM projects WHERE user_id = %s", (user_id,))
+        row = cur.fetchone()
         return row["cnt"]
     finally:
         conn.close()
@@ -390,9 +347,9 @@ def verify_user(email: str, password: str) -> dict | None:
     """이메일과 비밀번호로 사용자를 인증합니다. 성공 시 dict, 실패 시 None 반환."""
     conn = get_db()
     try:
-        row = conn.execute(
-            "SELECT * FROM users WHERE email = ?", (email,)
-        ).fetchone()
+        cur = _cursor(conn)
+        cur.execute("SELECT * FROM users WHERE email = %s", (email,))
+        row = cur.fetchone()
         if row is None:
             return None
         pw_hash, _ = hash_password(password, row["salt"])
@@ -407,7 +364,9 @@ def get_user(user_id: int) -> dict | None:
     """사용자 ID로 사용자 정보를 조회합니다."""
     conn = get_db()
     try:
-        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        cur = _cursor(conn)
+        cur.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+        row = cur.fetchone()
         return dict(row) if row else None
     finally:
         conn.close()
@@ -431,16 +390,18 @@ def create_project(
     """새 프로젝트를 생성하고 project_id를 반환합니다."""
     conn = get_db()
     try:
-        cursor = conn.execute(
+        cur = _cursor(conn)
+        cur.execute(
             """INSERT INTO projects
                (user_id, name, url, crawl_mode, crawl_path, max_pages,
                 crawl_delay, schedule, schedule_time)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
             (user_id, name, url, crawl_mode, crawl_path, max_pages,
              crawl_delay, schedule, schedule_time),
         )
+        row = cur.fetchone()
         conn.commit()
-        return cursor.lastrowid
+        return row["id"]
     finally:
         conn.close()
 
@@ -449,11 +410,12 @@ def get_projects(user_id: int) -> list[dict]:
     """특정 사용자의 모든 프로젝트를 반환합니다."""
     conn = get_db()
     try:
-        rows = conn.execute(
-            "SELECT * FROM projects WHERE user_id = ? ORDER BY created_at DESC",
+        cur = _cursor(conn)
+        cur.execute(
+            "SELECT * FROM projects WHERE user_id = %s ORDER BY created_at DESC",
             (user_id,),
-        ).fetchall()
-        return [dict(r) for r in rows]
+        )
+        return _dict_rows(cur)
     finally:
         conn.close()
 
@@ -462,9 +424,9 @@ def get_project(project_id: int) -> dict | None:
     """프로젝트 ID로 프로젝트 정보를 조회합니다."""
     conn = get_db()
     try:
-        row = conn.execute(
-            "SELECT * FROM projects WHERE id = ?", (project_id,)
-        ).fetchone()
+        cur = _cursor(conn)
+        cur.execute("SELECT * FROM projects WHERE id = %s", (project_id,))
+        row = cur.fetchone()
         return dict(row) if row else None
     finally:
         conn.close()
@@ -476,19 +438,17 @@ def update_project(project_id: int, **kwargs):
         "name", "url", "crawl_mode", "crawl_path", "max_pages",
         "crawl_delay", "schedule", "schedule_time", "last_crawl_at",
     }
-    # 허용되지 않은 필드 필터링
     updates = {k: v for k, v in kwargs.items() if k in allowed}
     if not updates:
         return
 
-    set_clause = ", ".join(f"{k} = ?" for k in updates)
+    set_clause = ", ".join(f"{k} = %s" for k in updates)
     values = list(updates.values()) + [project_id]
 
     conn = get_db()
     try:
-        conn.execute(
-            f"UPDATE projects SET {set_clause} WHERE id = ?", values
-        )
+        cur = _cursor(conn)
+        cur.execute(f"UPDATE projects SET {set_clause} WHERE id = %s", values)
         conn.commit()
     finally:
         conn.close()
@@ -498,18 +458,17 @@ def delete_project(project_id: int):
     """프로젝트와 관련된 모든 데이터를 삭제합니다."""
     conn = get_db()
     try:
-        # crawl_runs를 참조하는 테이블 먼저 삭제
-        conn.execute("DELETE FROM insights WHERE project_id = ?", (project_id,))
-        conn.execute("DELETE FROM page_changes WHERE project_id = ?", (project_id,))
-        conn.execute("DELETE FROM page_snapshots WHERE project_id = ?", (project_id,))
-        conn.execute("DELETE FROM pagespeed_data WHERE project_id = ?", (project_id,))
-        # projects를 참조하는 나머지 테이블 삭제
-        conn.execute("DELETE FROM sc_issues WHERE project_id = ?", (project_id,))
-        conn.execute("DELETE FROM sc_analytics WHERE project_id = ?", (project_id,))
-        conn.execute("DELETE FROM sc_connections WHERE project_id = ?", (project_id,))
-        conn.execute("DELETE FROM excluded_urls WHERE project_id = ?", (project_id,))
-        conn.execute("DELETE FROM crawl_runs WHERE project_id = ?", (project_id,))
-        conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+        cur = _cursor(conn)
+        cur.execute("DELETE FROM insights WHERE project_id = %s", (project_id,))
+        cur.execute("DELETE FROM page_changes WHERE project_id = %s", (project_id,))
+        cur.execute("DELETE FROM page_snapshots WHERE project_id = %s", (project_id,))
+        cur.execute("DELETE FROM pagespeed_data WHERE project_id = %s", (project_id,))
+        cur.execute("DELETE FROM sc_issues WHERE project_id = %s", (project_id,))
+        cur.execute("DELETE FROM sc_analytics WHERE project_id = %s", (project_id,))
+        cur.execute("DELETE FROM sc_connections WHERE project_id = %s", (project_id,))
+        cur.execute("DELETE FROM excluded_urls WHERE project_id = %s", (project_id,))
+        cur.execute("DELETE FROM crawl_runs WHERE project_id = %s", (project_id,))
+        cur.execute("DELETE FROM projects WHERE id = %s", (project_id,))
         conn.commit()
     finally:
         conn.close()
@@ -520,12 +479,14 @@ def add_excluded_url(project_id: int, url_pattern: str, reason: str = "") -> int
     """제외 URL 패턴을 추가합니다."""
     conn = get_db()
     try:
-        cursor = conn.execute(
-            "INSERT INTO excluded_urls (project_id, url_pattern, reason) VALUES (?, ?, ?)",
+        cur = _cursor(conn)
+        cur.execute(
+            "INSERT INTO excluded_urls (project_id, url_pattern, reason) VALUES (%s, %s, %s) RETURNING id",
             (project_id, url_pattern, reason),
         )
+        row = cur.fetchone()
         conn.commit()
-        return cursor.lastrowid
+        return row["id"]
     finally:
         conn.close()
 
@@ -534,11 +495,12 @@ def get_excluded_urls(project_id: int) -> list[dict]:
     """프로젝트의 제외 URL 목록을 반환합니다."""
     conn = get_db()
     try:
-        rows = conn.execute(
-            "SELECT * FROM excluded_urls WHERE project_id = ? ORDER BY created_at DESC",
+        cur = _cursor(conn)
+        cur.execute(
+            "SELECT * FROM excluded_urls WHERE project_id = %s ORDER BY created_at DESC",
             (project_id,),
-        ).fetchall()
-        return [dict(r) for r in rows]
+        )
+        return _dict_rows(cur)
     finally:
         conn.close()
 
@@ -547,7 +509,8 @@ def delete_excluded_url(excluded_id: int):
     """제외 URL을 삭제합니다."""
     conn = get_db()
     try:
-        conn.execute("DELETE FROM excluded_urls WHERE id = ?", (excluded_id,))
+        cur = _cursor(conn)
+        cur.execute("DELETE FROM excluded_urls WHERE id = %s", (excluded_id,))
         conn.commit()
     finally:
         conn.close()
@@ -560,7 +523,6 @@ def is_url_excluded(project_id: int, url: str) -> bool:
         pattern = ex.get("url_pattern", "")
         if not pattern:
             continue
-        # 정확한 URL 매칭 또는 패턴 포함 매칭
         if pattern == url or pattern in url or url.startswith(pattern):
             return True
     return False
@@ -574,13 +536,15 @@ def create_crawl_run(project_id: int) -> int:
     """새 크롤링 실행을 생성합니다. run_id를 반환합니다."""
     conn = get_db()
     try:
+        cur = _cursor(conn)
         now = datetime.utcnow().isoformat()
-        cursor = conn.execute(
-            "INSERT INTO crawl_runs (project_id, started_at, status) VALUES (?, ?, 'running')",
+        cur.execute(
+            "INSERT INTO crawl_runs (project_id, started_at, status) VALUES (%s, %s, 'running') RETURNING id",
             (project_id, now),
         )
+        row = cur.fetchone()
         conn.commit()
-        return cursor.lastrowid
+        return row["id"]
     finally:
         conn.close()
 
@@ -596,14 +560,13 @@ def update_crawl_run(run_id: int, **kwargs):
     if not updates:
         return
 
-    set_clause = ", ".join(f"{k} = ?" for k in updates)
+    set_clause = ", ".join(f"{k} = %s" for k in updates)
     values = list(updates.values()) + [run_id]
 
     conn = get_db()
     try:
-        conn.execute(
-            f"UPDATE crawl_runs SET {set_clause} WHERE id = ?", values
-        )
+        cur = _cursor(conn)
+        cur.execute(f"UPDATE crawl_runs SET {set_clause} WHERE id = %s", values)
         conn.commit()
     finally:
         conn.close()
@@ -613,11 +576,12 @@ def get_crawl_runs(project_id: int, limit: int = 20) -> list[dict]:
     """특정 프로젝트의 크롤링 실행 목록을 최신순으로 반환합니다."""
     conn = get_db()
     try:
-        rows = conn.execute(
-            "SELECT * FROM crawl_runs WHERE project_id = ? ORDER BY id DESC LIMIT ?",
+        cur = _cursor(conn)
+        cur.execute(
+            "SELECT * FROM crawl_runs WHERE project_id = %s ORDER BY id DESC LIMIT %s",
             (project_id, limit),
-        ).fetchall()
-        return [dict(r) for r in rows]
+        )
+        return _dict_rows(cur)
     finally:
         conn.close()
 
@@ -626,12 +590,14 @@ def get_latest_crawl(project_id: int) -> dict | None:
     """가장 최근 완료된 크롤링 실행을 반환합니다."""
     conn = get_db()
     try:
-        row = conn.execute(
+        cur = _cursor(conn)
+        cur.execute(
             """SELECT * FROM crawl_runs
-               WHERE project_id = ? AND status = 'completed'
+               WHERE project_id = %s AND status = 'completed'
                ORDER BY id DESC LIMIT 1""",
             (project_id,),
-        ).fetchone()
+        )
+        row = cur.fetchone()
         return dict(row) if row else None
     finally:
         conn.close()
@@ -641,12 +607,14 @@ def get_previous_crawl(project_id: int) -> dict | None:
     """두 번째로 최근 완료된 크롤링 실행을 반환합니다 (비교 분석용)."""
     conn = get_db()
     try:
-        row = conn.execute(
+        cur = _cursor(conn)
+        cur.execute(
             """SELECT * FROM crawl_runs
-               WHERE project_id = ? AND status = 'completed'
+               WHERE project_id = %s AND status = 'completed'
                ORDER BY id DESC LIMIT 1 OFFSET 1""",
             (project_id,),
-        ).fetchone()
+        )
+        row = cur.fetchone()
         return dict(row) if row else None
     finally:
         conn.close()
@@ -660,11 +628,12 @@ def save_insights(crawl_run_id: int, project_id: int, insights: list[dict]):
     """인사이트 목록을 DB에 저장합니다."""
     conn = get_db()
     try:
+        cur = _cursor(conn)
         for ins in insights:
-            conn.execute(
+            cur.execute(
                 """INSERT INTO insights
                    (crawl_run_id, project_id, category, insight_type, title, detail, url, severity)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     crawl_run_id,
                     project_id,
@@ -685,21 +654,22 @@ def get_insights(project_id: int, crawl_run_id: int = None) -> list[dict]:
     """프로젝트의 인사이트를 조회합니다. crawl_run_id를 지정하면 해당 실행의 인사이트만 반환합니다."""
     conn = get_db()
     try:
+        cur = _cursor(conn)
         if crawl_run_id is not None:
-            rows = conn.execute(
+            cur.execute(
                 """SELECT * FROM insights
-                   WHERE project_id = ? AND crawl_run_id = ?
+                   WHERE project_id = %s AND crawl_run_id = %s
                    ORDER BY created_at DESC""",
                 (project_id, crawl_run_id),
-            ).fetchall()
+            )
         else:
-            rows = conn.execute(
+            cur.execute(
                 """SELECT * FROM insights
-                   WHERE project_id = ?
+                   WHERE project_id = %s
                    ORDER BY created_at DESC""",
                 (project_id,),
-            ).fetchall()
-        return [dict(r) for r in rows]
+            )
+        return _dict_rows(cur)
     finally:
         conn.close()
 
@@ -720,7 +690,6 @@ def _parse_json_field(raw: str | None) -> list | dict:
 
 def _classify_issue_category(issue: dict) -> str:
     """이슈를 content 또는 technical 카테고리로 분류합니다."""
-    # 콘텐츠 관련 키워드 — T&D, EEAT, H1, 중복 타이틀 등은 콘텐츠
     content_keywords = [
         "title", "description", "meta description", "thin", "content",
         "schema", "structured data",
@@ -729,9 +698,8 @@ def _classify_issue_category(issue: dict) -> str:
         "og:", "twitter:", "alt text",
         "duplicate title", "duplicate description", "duplicate content",
         "missing title", "missing description", "missing h1",
-        "title too", "description too",  # "title too long", "title too short" etc.
+        "title too", "description too",
     ]
-    # 기술적 관련 키워드 — 서버, 보안, 리디렉트, 크롤링 관련
     technical_keywords = [
         "status code", "http status", "4xx", "5xx", "404", "500", "503",
         "performance", "speed", "load time", "response time",
@@ -746,16 +714,13 @@ def _classify_issue_category(issue: dict) -> str:
     content_score = sum(1 for kw in content_keywords if kw in text)
     tech_score = sum(1 for kw in technical_keywords if kw in text)
 
-    # 콘텐츠가 1점이라도 있으면 콘텐츠 우선 (타이 시 콘텐츠)
     if content_score > 0 and content_score >= tech_score:
         return "content"
     elif tech_score > 0:
         return "technical"
-    # 둘 다 0이면 키워드로 추가 판단
     issue_type = (issue.get("type", "") or "").lower()
     issue_title = (issue.get("title", "") or "").lower()
     combined = issue_type + " " + issue_title
-    # 일반적인 콘텐츠 관련 타입
     if any(kw in combined for kw in ["title", "desc", "h1", "heading", "content", "schema", "eeat", "alt", "og:", "meta"]):
         return "content"
     return "technical"
@@ -779,23 +744,20 @@ def generate_insights(
     """
     conn = get_db()
     try:
-        # 현재 크롤링 데이터 로드
-        current_row = conn.execute(
-            "SELECT * FROM crawl_runs WHERE id = ?", (current_run_id,)
-        ).fetchone()
+        cur = _cursor(conn)
+        cur.execute("SELECT * FROM crawl_runs WHERE id = %s", (current_run_id,))
+        current_row = cur.fetchone()
         if not current_row:
             return []
 
         current_pages = _parse_json_field(current_row["pages_json"])
         current_issues = _parse_json_field(current_row["issues_json"])
 
-        # 이전 크롤링 데이터 로드
         prev_pages = []
         prev_issues = []
         if previous_run_id:
-            prev_row = conn.execute(
-                "SELECT * FROM crawl_runs WHERE id = ?", (previous_run_id,)
-            ).fetchone()
+            cur.execute("SELECT * FROM crawl_runs WHERE id = %s", (previous_run_id,))
+            prev_row = cur.fetchone()
             if prev_row:
                 prev_pages = _parse_json_field(prev_row["pages_json"])
                 prev_issues = _parse_json_field(prev_row["issues_json"])
@@ -818,14 +780,12 @@ def generate_insights(
                 "severity": "HIGH",
             })
 
-    # URL 기반 비교를 위한 집합 생성
     def _page_urls(pages) -> set:
         if isinstance(pages, list):
             return {p.get("url", "") for p in pages if isinstance(p, dict) and p.get("url")}
         return set()
 
     def _issue_key(issue: dict) -> str:
-        """이슈를 고유하게 식별하기 위한 키 생성."""
         return f"{issue.get('url', '')}||{issue.get('title', '')}||{issue.get('type', '')}"
 
     current_page_urls = _page_urls(current_pages)
@@ -834,7 +794,6 @@ def generate_insights(
     current_issue_keys = {_issue_key(i) for i in current_issues}
     prev_issue_keys = {_issue_key(i) for i in prev_issues}
 
-    # 이전 이슈를 키로 빠르게 조회하기 위한 딕셔너리
     prev_issue_map = {_issue_key(i): i for i in prev_issues}
     current_issue_map = {_issue_key(i): i for i in current_issues}
 
@@ -844,7 +803,7 @@ def generate_insights(
         issue = current_issue_map.get(key, {})
         severity = issue.get("severity", "").upper()
         if severity == "HIGH":
-            continue  # urgent에서 이미 처리됨
+            continue
         category = _classify_issue_category(issue)
         insights.append({
             "category": category,
@@ -882,7 +841,6 @@ def generate_insights(
 
             prev_page = prev_page_map[page_url]
 
-            # 타이틀이 없었는데 추가된 경우
             if not prev_page.get("title") and page.get("title"):
                 insights.append({
                     "category": "content",
@@ -893,7 +851,6 @@ def generate_insights(
                     "severity": "LOW",
                 })
 
-            # 메타 설명이 없었는데 추가된 경우
             if not prev_page.get("description") and page.get("description"):
                 insights.append({
                     "category": "content",
@@ -904,7 +861,6 @@ def generate_insights(
                     "severity": "LOW",
                 })
 
-            # 스키마 마크업이 없었는데 추가된 경우
             prev_schema = prev_page.get("schema") or prev_page.get("structured_data")
             curr_schema = page.get("schema") or page.get("structured_data")
             if not prev_schema and curr_schema:
@@ -917,7 +873,6 @@ def generate_insights(
                     "severity": "LOW",
                 })
 
-            # HTTPS로 전환된 경우
             prev_secure = prev_page.get("is_https", False)
             curr_secure = page.get("is_https", False)
             if not prev_secure and curr_secure:
@@ -933,7 +888,7 @@ def generate_insights(
     # ── 5. new_page: 새로 발견된 페이지 ──
     new_pages = current_page_urls - prev_page_urls
     if new_pages:
-        for page_url in list(new_pages)[:50]:  # 최대 50개까지만
+        for page_url in list(new_pages)[:50]:
             insights.append({
                 "category": "technical",
                 "insight_type": "new_page",
@@ -956,7 +911,6 @@ def generate_insights(
                 "severity": "MEDIUM",
             })
 
-    # 인사이트를 DB에 저장
     if insights:
         save_insights(current_run_id, project_id, insights)
 
@@ -971,20 +925,20 @@ def save_sc_connection(project_id: int, credentials_json: str, site_url: str):
     """SC 연결 정보 저장 (upsert)"""
     conn = get_db()
     try:
-        existing = conn.execute(
-            "SELECT id FROM sc_connections WHERE project_id = ?", (project_id,)
-        ).fetchone()
+        cur = _cursor(conn)
+        cur.execute("SELECT id FROM sc_connections WHERE project_id = %s", (project_id,))
+        existing = cur.fetchone()
         if existing:
-            conn.execute(
+            cur.execute(
                 """UPDATE sc_connections
-                   SET credentials_json = ?, site_url = ?, connected_at = CURRENT_TIMESTAMP
-                   WHERE project_id = ?""",
+                   SET credentials_json = %s, site_url = %s, connected_at = CURRENT_TIMESTAMP
+                   WHERE project_id = %s""",
                 (credentials_json, site_url, project_id),
             )
         else:
-            conn.execute(
+            cur.execute(
                 """INSERT INTO sc_connections (project_id, credentials_json, site_url)
-                   VALUES (?, ?, ?)""",
+                   VALUES (%s, %s, %s)""",
                 (project_id, credentials_json, site_url),
             )
         conn.commit()
@@ -996,9 +950,9 @@ def get_sc_connection(project_id: int) -> dict | None:
     """SC 연결 정보 조회"""
     conn = get_db()
     try:
-        row = conn.execute(
-            "SELECT * FROM sc_connections WHERE project_id = ?", (project_id,)
-        ).fetchone()
+        cur = _cursor(conn)
+        cur.execute("SELECT * FROM sc_connections WHERE project_id = %s", (project_id,))
+        row = cur.fetchone()
         return dict(row) if row else None
     finally:
         conn.close()
@@ -1008,7 +962,8 @@ def delete_sc_connection(project_id: int):
     """SC 연결 해제"""
     conn = get_db()
     try:
-        conn.execute("DELETE FROM sc_connections WHERE project_id = ?", (project_id,))
+        cur = _cursor(conn)
+        cur.execute("DELETE FROM sc_connections WHERE project_id = %s", (project_id,))
         conn.commit()
     finally:
         conn.close()
@@ -1018,8 +973,9 @@ def update_sc_last_sync(project_id: int):
     """마지막 동기화 시간 업데이트"""
     conn = get_db()
     try:
-        conn.execute(
-            "UPDATE sc_connections SET last_sync_at = CURRENT_TIMESTAMP WHERE project_id = ?",
+        cur = _cursor(conn)
+        cur.execute(
+            "UPDATE sc_connections SET last_sync_at = CURRENT_TIMESTAMP WHERE project_id = %s",
             (project_id,),
         )
         conn.commit()
@@ -1032,14 +988,15 @@ def update_sc_last_sync(project_id: int):
 # ─────────────────────────────────────────────
 
 def save_sc_analytics(project_id: int, data: list[dict]):
-    """SC 분석 데이터 벌크 저장. Each dict: {date, url, query, clicks, impressions, ctr, position, device, country}"""
+    """SC 분석 데이터 벌크 저장."""
     conn = get_db()
     try:
+        cur = _cursor(conn)
         for row in data:
-            conn.execute(
+            cur.execute(
                 """INSERT INTO sc_analytics
                    (project_id, date, url, query, clicks, impressions, ctr, position, device, country)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     project_id,
                     row.get("date", ""),
@@ -1059,33 +1016,35 @@ def save_sc_analytics(project_id: int, data: list[dict]):
 
 
 def get_sc_analytics(project_id: int, start_date: str = None, end_date: str = None, url: str = None) -> list[dict]:
-    """SC 분석 데이터 조회. 필터 옵션 지원"""
+    """SC 분석 데이터 조회."""
     conn = get_db()
     try:
-        query = "SELECT * FROM sc_analytics WHERE project_id = ?"
+        cur = _cursor(conn)
+        query = "SELECT * FROM sc_analytics WHERE project_id = %s"
         params: list = [project_id]
 
         if start_date:
-            query += " AND date >= ?"
+            query += " AND date >= %s"
             params.append(start_date)
         if end_date:
-            query += " AND date <= ?"
+            query += " AND date <= %s"
             params.append(end_date)
         if url:
-            query += " AND url = ?"
+            query += " AND url = %s"
             params.append(url)
 
         query += " ORDER BY date DESC"
-        rows = conn.execute(query, params).fetchall()
-        return [dict(r) for r in rows]
+        cur.execute(query, params)
+        return _dict_rows(cur)
     finally:
         conn.close()
 
 
 def get_sc_top_pages(project_id: int, start_date: str = None, end_date: str = None, limit: int = 50) -> list[dict]:
-    """클릭 기준 상위 페이지. GROUP BY url, SUM clicks, impressions"""
+    """클릭 기준 상위 페이지."""
     conn = get_db()
     try:
+        cur = _cursor(conn)
         query = """
             SELECT url,
                    SUM(clicks) as total_clicks,
@@ -1093,30 +1052,31 @@ def get_sc_top_pages(project_id: int, start_date: str = None, end_date: str = No
                    CASE WHEN SUM(impressions) > 0 THEN CAST(SUM(clicks) AS REAL) / SUM(impressions) ELSE 0 END as avg_ctr,
                    AVG(position) as avg_position
             FROM sc_analytics
-            WHERE project_id = ?
+            WHERE project_id = %s
         """
         params: list = [project_id]
 
         if start_date:
-            query += " AND date >= ?"
+            query += " AND date >= %s"
             params.append(start_date)
         if end_date:
-            query += " AND date <= ?"
+            query += " AND date <= %s"
             params.append(end_date)
 
-        query += " GROUP BY url ORDER BY total_clicks DESC LIMIT ?"
+        query += " GROUP BY url ORDER BY total_clicks DESC LIMIT %s"
         params.append(limit)
 
-        rows = conn.execute(query, params).fetchall()
-        return [dict(r) for r in rows]
+        cur.execute(query, params)
+        return _dict_rows(cur)
     finally:
         conn.close()
 
 
 def get_sc_top_queries(project_id: int, start_date: str = None, end_date: str = None, limit: int = 50) -> list[dict]:
-    """클릭 기준 상위 쿼리. GROUP BY query"""
+    """클릭 기준 상위 쿼리."""
     conn = get_db()
     try:
+        cur = _cursor(conn)
         query = """
             SELECT query,
                    SUM(clicks) as total_clicks,
@@ -1124,69 +1084,72 @@ def get_sc_top_queries(project_id: int, start_date: str = None, end_date: str = 
                    CASE WHEN SUM(impressions) > 0 THEN CAST(SUM(clicks) AS REAL) / SUM(impressions) ELSE 0 END as avg_ctr,
                    AVG(position) as avg_position
             FROM sc_analytics
-            WHERE project_id = ? AND query != ''
+            WHERE project_id = %s AND query != ''
         """
         params: list = [project_id]
 
         if start_date:
-            query += " AND date >= ?"
+            query += " AND date >= %s"
             params.append(start_date)
         if end_date:
-            query += " AND date <= ?"
+            query += " AND date <= %s"
             params.append(end_date)
 
-        query += " GROUP BY query ORDER BY total_clicks DESC LIMIT ?"
+        query += " GROUP BY query ORDER BY total_clicks DESC LIMIT %s"
         params.append(limit)
 
-        rows = conn.execute(query, params).fetchall()
-        return [dict(r) for r in rows]
+        cur.execute(query, params)
+        return _dict_rows(cur)
     finally:
         conn.close()
 
 
 def get_sc_daily_trend(project_id: int, days: int = 28) -> list[dict]:
-    """일별 트렌드 (총 clicks, impressions). GROUP BY date"""
+    """일별 트렌드."""
     conn = get_db()
     try:
-        rows = conn.execute(
+        cur = _cursor(conn)
+        cur.execute(
             """SELECT date,
                       SUM(clicks) as total_clicks,
                       SUM(impressions) as total_impressions,
                       CASE WHEN SUM(impressions) > 0 THEN CAST(SUM(clicks) AS REAL) / SUM(impressions) ELSE 0 END as avg_ctr,
                       AVG(position) as avg_position
                FROM sc_analytics
-               WHERE project_id = ?
+               WHERE project_id = %s
                GROUP BY date
                ORDER BY date DESC
-               LIMIT ?""",
+               LIMIT %s""",
             (project_id, days),
-        ).fetchall()
-        return [dict(r) for r in rows]
+        )
+        return _dict_rows(cur)
     finally:
         conn.close()
 
 
 def save_sc_issues(project_id: int, issues: list[dict]):
-    """SC 인덱싱 이슈 저장. Each dict: {url, issue_type, severity, detail}. 기존 이슈 업데이트, 새 이슈 추가."""
+    """SC 인덱싱 이슈 저장."""
     conn = get_db()
     try:
+        cur = _cursor(conn)
         for issue in issues:
             url = issue.get("url", "")
             issue_type = issue.get("issue_type", "")
-            existing = conn.execute(
+            cur.execute(
                 """SELECT id FROM sc_issues
-                   WHERE project_id = ? AND url = ? AND issue_type = ? AND resolved_at IS NULL""",
+                   WHERE project_id = %s AND url = %s AND issue_type = %s AND resolved_at IS NULL""",
                 (project_id, url, issue_type),
-            ).fetchone()
+            )
+            existing = cur.fetchone()
             if existing:
-                conn.execute(
-                    "UPDATE sc_issues SET last_detected = CURRENT_TIMESTAMP, severity = ?, detail = ? WHERE id = ?",
+                cur.execute(
+                    "UPDATE sc_issues SET last_detected = CURRENT_TIMESTAMP, severity = %s, detail = %s WHERE id = %s",
                     (issue.get("severity", "MEDIUM"), issue.get("detail", ""), existing["id"]),
                 )
             else:
-                conn.execute(
+                cur.execute(
                     """INSERT INTO sc_issues (project_id, url, issue_type, severity, detail)
-                       VALUES (?, ?, ?, ?, ?)""",
+                       VALUES (%s, %s, %s, %s, %s)""",
                     (project_id, url, issue_type, issue.get("severity", "MEDIUM"), issue.get("detail", "")),
                 )
         conn.commit()
@@ -1198,17 +1161,18 @@ def get_sc_issues(project_id: int, resolved: bool = False) -> list[dict]:
     """활성 또는 해결된 SC 이슈 조회"""
     conn = get_db()
     try:
+        cur = _cursor(conn)
         if resolved:
-            rows = conn.execute(
-                "SELECT * FROM sc_issues WHERE project_id = ? AND resolved_at IS NOT NULL ORDER BY resolved_at DESC",
+            cur.execute(
+                "SELECT * FROM sc_issues WHERE project_id = %s AND resolved_at IS NOT NULL ORDER BY resolved_at DESC",
                 (project_id,),
-            ).fetchall()
+            )
         else:
-            rows = conn.execute(
-                "SELECT * FROM sc_issues WHERE project_id = ? AND resolved_at IS NULL ORDER BY last_detected DESC",
+            cur.execute(
+                "SELECT * FROM sc_issues WHERE project_id = %s AND resolved_at IS NULL ORDER BY last_detected DESC",
                 (project_id,),
-            ).fetchall()
-        return [dict(r) for r in rows]
+            )
+        return _dict_rows(cur)
     finally:
         conn.close()
 
@@ -1218,13 +1182,14 @@ def get_sc_issues(project_id: int, resolved: bool = False) -> list[dict]:
 # ─────────────────────────────────────────────
 
 def save_pagespeed_data(project_id: int, crawl_run_id: int, url: str, data: dict):
-    """PageSpeed 데이터 저장. data: {score, lcp, fid, cls, ttfb, si, tbt, opportunities_json, diagnostics_json, strategy}"""
+    """PageSpeed 데이터 저장."""
     conn = get_db()
     try:
-        conn.execute(
+        cur = _cursor(conn)
+        cur.execute(
             """INSERT INTO pagespeed_data
                (project_id, crawl_run_id, url, strategy, score, lcp, fid, cls, ttfb, si, tbt, opportunities_json, diagnostics_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             (
                 project_id,
                 crawl_run_id,
@@ -1250,19 +1215,20 @@ def get_pagespeed_data(project_id: int, url: str = None, crawl_run_id: int = Non
     """PageSpeed 데이터 조회"""
     conn = get_db()
     try:
-        query = "SELECT * FROM pagespeed_data WHERE project_id = ?"
+        cur = _cursor(conn)
+        query = "SELECT * FROM pagespeed_data WHERE project_id = %s"
         params: list = [project_id]
 
         if url:
-            query += " AND url = ?"
+            query += " AND url = %s"
             params.append(url)
         if crawl_run_id:
-            query += " AND crawl_run_id = ?"
+            query += " AND crawl_run_id = %s"
             params.append(crawl_run_id)
 
         query += " ORDER BY measured_at DESC"
-        rows = conn.execute(query, params).fetchall()
-        return [dict(r) for r in rows]
+        cur.execute(query, params)
+        return _dict_rows(cur)
     finally:
         conn.close()
 
@@ -1271,11 +1237,12 @@ def get_pagespeed_history(project_id: int, url: str) -> list[dict]:
     """특정 URL의 PageSpeed 히스토리 (시간순)"""
     conn = get_db()
     try:
-        rows = conn.execute(
-            "SELECT * FROM pagespeed_data WHERE project_id = ? AND url = ? ORDER BY measured_at ASC",
+        cur = _cursor(conn)
+        cur.execute(
+            "SELECT * FROM pagespeed_data WHERE project_id = %s AND url = %s ORDER BY measured_at ASC",
             (project_id, url),
-        ).fetchall()
-        return [dict(r) for r in rows]
+        )
+        return _dict_rows(cur)
     finally:
         conn.close()
 
@@ -1285,12 +1252,10 @@ def get_pagespeed_history(project_id: int, url: str) -> list[dict]:
 # ─────────────────────────────────────────────
 
 def save_page_snapshots(project_id: int, crawl_run_id: int, pages: list[dict]):
-    """
-    크롤링된 페이지들의 스냅샷 저장.
-    Each dict should have: URL, Title, Meta Desc, H1, Words, Status, Schema Types, Canonical, HTTPS, Load (s)
-    """
+    """크롤링된 페이지들의 스냅샷 저장."""
     conn = get_db()
     try:
+        cur = _cursor(conn)
         for page in pages:
             url = page.get("URL") or page.get("url", "")
             title = page.get("Title") or page.get("title", "")
@@ -1306,12 +1271,12 @@ def save_page_snapshots(project_id: int, crawl_run_id: int, pages: list[dict]):
                 is_https = 1 if is_https else 0
             load_time = page.get("Load (s)") or page.get("load_time", 0.0)
 
-            conn.execute(
+            cur.execute(
                 """INSERT INTO page_snapshots
                    (project_id, crawl_run_id, url, title, meta_description, h1,
                     word_count, status_code, schema_types, has_canonical, canonical_url,
                     is_https, load_time)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     project_id, crawl_run_id, url, title, meta_desc, h1,
                     word_count, status_code, schema_types, has_canonical, canonical_url,
@@ -1327,11 +1292,12 @@ def get_page_snapshots(project_id: int, url: str) -> list[dict]:
     """특정 URL의 스냅샷 히스토리 (시간순)"""
     conn = get_db()
     try:
-        rows = conn.execute(
-            "SELECT * FROM page_snapshots WHERE project_id = ? AND url = ? ORDER BY snapshot_at ASC",
+        cur = _cursor(conn)
+        cur.execute(
+            "SELECT * FROM page_snapshots WHERE project_id = %s AND url = %s ORDER BY snapshot_at ASC",
             (project_id, url),
-        ).fetchall()
-        return [dict(r) for r in rows]
+        )
+        return _dict_rows(cur)
     finally:
         conn.close()
 
@@ -1340,28 +1306,27 @@ def get_latest_snapshot(project_id: int, url: str) -> dict | None:
     """특정 URL의 최신 스냅샷"""
     conn = get_db()
     try:
-        row = conn.execute(
-            "SELECT * FROM page_snapshots WHERE project_id = ? AND url = ? ORDER BY snapshot_at DESC LIMIT 1",
+        cur = _cursor(conn)
+        cur.execute(
+            "SELECT * FROM page_snapshots WHERE project_id = %s AND url = %s ORDER BY snapshot_at DESC LIMIT 1",
             (project_id, url),
-        ).fetchone()
+        )
+        row = cur.fetchone()
         return dict(row) if row else None
     finally:
         conn.close()
 
 
 def detect_page_changes(project_id: int, crawl_run_id: int) -> list[dict]:
-    """
-    현재 크롤 결과와 이전 스냅샷을 비교하여 변경 사항 탐지.
-    비교 필드: title, meta_description, h1, word_count, status_code, schema_types, canonical_url, is_https
-    변경된 항목을 page_changes 테이블에 저장하고 반환.
-    """
+    """현재 크롤 결과와 이전 스냅샷을 비교하여 변경 사항 탐지."""
     conn = get_db()
     try:
-        # 현재 크롤의 스냅샷 가져오기
-        current_snapshots = conn.execute(
-            "SELECT * FROM page_snapshots WHERE project_id = ? AND crawl_run_id = ?",
+        cur = _cursor(conn)
+        cur.execute(
+            "SELECT * FROM page_snapshots WHERE project_id = %s AND crawl_run_id = %s",
             (project_id, crawl_run_id),
-        ).fetchall()
+        )
+        current_snapshots = cur.fetchall()
 
         compare_fields = [
             "title", "meta_description", "h1", "word_count",
@@ -1375,13 +1340,13 @@ def detect_page_changes(project_id: int, crawl_run_id: int) -> list[dict]:
             snap = dict(snap)
             url = snap["url"]
 
-            # 이전 스냅샷 (현재 크롤 이전의 가장 최근 것)
-            prev = conn.execute(
+            cur.execute(
                 """SELECT * FROM page_snapshots
-                   WHERE project_id = ? AND url = ? AND crawl_run_id < ?
+                   WHERE project_id = %s AND url = %s AND crawl_run_id < %s
                    ORDER BY snapshot_at DESC LIMIT 1""",
                 (project_id, url, crawl_run_id),
-            ).fetchone()
+            )
+            prev = cur.fetchone()
 
             if not prev:
                 continue
@@ -1392,10 +1357,10 @@ def detect_page_changes(project_id: int, crawl_run_id: int) -> list[dict]:
                 old_val = str(prev.get(field, ""))
                 new_val = str(snap.get(field, ""))
                 if old_val != new_val:
-                    conn.execute(
+                    cur.execute(
                         """INSERT INTO page_changes
                            (project_id, url, field_name, old_value, new_value, crawl_run_id, detected_at)
-                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                           VALUES (%s, %s, %s, %s, %s, %s, %s)""",
                         (project_id, url, field, old_val, new_val, crawl_run_id, now),
                     )
                     changes.append({
@@ -1416,51 +1381,43 @@ def get_page_changes(project_id: int, crawl_run_id: int = None, url: str = None,
     """페이지 변경 기록 조회"""
     conn = get_db()
     try:
-        query = "SELECT * FROM page_changes WHERE project_id = ?"
+        cur = _cursor(conn)
+        query = "SELECT * FROM page_changes WHERE project_id = %s"
         params: list = [project_id]
 
         if crawl_run_id:
-            query += " AND crawl_run_id = ?"
+            query += " AND crawl_run_id = %s"
             params.append(crawl_run_id)
         if url:
-            query += " AND url = ?"
+            query += " AND url = %s"
             params.append(url)
 
-        query += " ORDER BY detected_at DESC LIMIT ?"
+        query += " ORDER BY detected_at DESC LIMIT %s"
         params.append(limit)
 
-        rows = conn.execute(query, params).fetchall()
-        return [dict(r) for r in rows]
+        cur.execute(query, params)
+        return _dict_rows(cur)
     finally:
         conn.close()
 
 
 def get_page_change_summary(project_id: int, crawl_run_id: int) -> dict:
-    """
-    변경 요약: {
-        "total_changes": int,
-        "title_changes": int,
-        "description_changes": int,
-        "h1_changes": int,
-        "content_changes": int,  # word_count changes
-        "schema_changes": int,
-        "status_changes": int,
-        "pages_changed": int,  # distinct URLs
-    }
-    """
+    """변경 요약"""
     conn = get_db()
     try:
-        rows = conn.execute(
-            "SELECT field_name, COUNT(*) as cnt FROM page_changes WHERE project_id = ? AND crawl_run_id = ? GROUP BY field_name",
+        cur = _cursor(conn)
+        cur.execute(
+            "SELECT field_name, COUNT(*) as cnt FROM page_changes WHERE project_id = %s AND crawl_run_id = %s GROUP BY field_name",
             (project_id, crawl_run_id),
-        ).fetchall()
-
+        )
+        rows = cur.fetchall()
         field_counts = {r["field_name"]: r["cnt"] for r in rows}
 
-        pages_changed_row = conn.execute(
-            "SELECT COUNT(DISTINCT url) as cnt FROM page_changes WHERE project_id = ? AND crawl_run_id = ?",
+        cur.execute(
+            "SELECT COUNT(DISTINCT url) as cnt FROM page_changes WHERE project_id = %s AND crawl_run_id = %s",
             (project_id, crawl_run_id),
-        ).fetchone()
+        )
+        pages_changed_row = cur.fetchone()
 
         total = sum(field_counts.values())
 
