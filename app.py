@@ -810,7 +810,7 @@ def _render_google_auth_page(title, subtitle):
             with tab_register:
                 # 가입 단계 관리 (session_state)
                 if "reg_step" not in st.session_state:
-                    st.session_state.reg_step = "form"  # form → verify → done
+                    st.session_state.reg_step = "form"
 
                 if st.session_state.reg_step == "form":
                     with st.form("register_form"):
@@ -819,52 +819,43 @@ def _render_google_auth_page(title, subtitle):
                         reg_pw2 = st.text_input("비밀번호 확인", type="password", placeholder="비밀번호를 다시 입력하세요")
                         reg_btn = st.form_submit_button("가입하기", use_container_width=True, type="primary")
 
-                        if reg_btn:
-                            if not reg_email or "@" not in reg_email:
-                                st.error("올바른 이메일 주소를 입력해주세요.")
-                            elif db.verify_user(reg_email, "") is not None or db.get_user(db.create_user_google(reg_email, "", "").get("id", 0)):
-                                # 이미 가입된 이메일인지 확인
-                                conn = db.get_db()
-                                try:
-                                    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-                                    cur.execute("SELECT id FROM users WHERE email = %s", (reg_email,))
-                                    existing = cur.fetchone()
-                                finally:
-                                    conn.close()
-                                if existing:
-                                    st.error("이미 가입된 이메일입니다. 로그인 탭에서 로그인하세요.")
-                                else:
-                                    pass  # 계속 진행
-                            else:
-                                pass
+                    if reg_btn:
+                        error_msg = None
+                        if not reg_email or "@" not in reg_email:
+                            error_msg = "올바른 이메일 주소를 입력해주세요."
+                        elif not reg_pw or not reg_pw2:
+                            error_msg = "비밀번호를 입력해주세요."
+                        elif reg_pw != reg_pw2:
+                            error_msg = "비밀번호가 일치하지 않습니다."
+                        else:
+                            pw_err = _validate_password(reg_pw)
+                            if pw_err:
+                                error_msg = pw_err
 
-                            # 이메일 중복 체크 (깔끔하게 다시)
-                            if reg_email and "@" in reg_email:
-                                conn = db.get_db()
-                                try:
-                                    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-                                    cur.execute("SELECT id FROM users WHERE email = %s", (reg_email,))
-                                    existing = cur.fetchone()
-                                finally:
-                                    conn.close()
-                                if existing:
-                                    st.error("이미 가입된 이메일입니다. 로그인 탭에서 로그인하세요.")
-                                elif reg_pw != reg_pw2:
-                                    st.error("비밀번호가 일치하지 않습니다.")
-                                else:
-                                    pw_err = _validate_password(reg_pw)
-                                    if pw_err:
-                                        st.error(pw_err)
-                                    else:
-                                        # 인증 코드 생성 및 발송
-                                        import random
-                                        code = f"{random.randint(100000, 999999)}"
-                                        db.save_verification_code(reg_email, code, 5)
-                                        if _send_verification_email(reg_email, code):
-                                            st.session_state.reg_email = reg_email
-                                            st.session_state.reg_pw = reg_pw
-                                            st.session_state.reg_step = "verify"
-                                            st.rerun()
+                        if not error_msg:
+                            # 이메일 중복 체크
+                            conn = db.get_db()
+                            try:
+                                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                                cur.execute("SELECT id FROM users WHERE email = %s", (reg_email,))
+                                existing = cur.fetchone()
+                            finally:
+                                conn.close()
+                            if existing:
+                                error_msg = "이미 가입된 이메일입니다. 로그인 탭에서 로그인하세요."
+
+                        if error_msg:
+                            st.error(error_msg)
+                        else:
+                            # 인증 코드 생성 및 발송
+                            import random
+                            code = f"{random.randint(100000, 999999)}"
+                            db.save_verification_code(reg_email, code, 5)
+                            if _send_verification_email(reg_email, code):
+                                st.session_state.reg_email = reg_email
+                                st.session_state.reg_pw = reg_pw
+                                st.session_state.reg_step = "verify"
+                                st.rerun()
 
                     st.markdown("""
                     <p style="color:#64748b;font-size:.8rem;text-align:center;margin-top:8px;">
