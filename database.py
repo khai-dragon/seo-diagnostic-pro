@@ -43,10 +43,52 @@ def _get_db_params() -> dict:
     raise RuntimeError("DB 접속 정보가 설정되지 않았습니다.")
 
 
+_pool = None
+
+def _get_pool():
+    """커넥션 풀을 반환합니다. 최초 호출 시 생성."""
+    global _pool
+    if _pool is None or _pool.closed:
+        from psycopg2 import pool
+        _pool = pool.SimpleConnectionPool(1, 5, **_get_db_params(), connect_timeout=10)
+    return _pool
+
+
+class _PooledConnection:
+    """conn.close() 호출 시 풀에 반환하는 래퍼."""
+    def __init__(self, conn, pool):
+        self._conn = conn
+        self._pool = pool
+    def cursor(self, **kwargs):
+        return self._conn.cursor(**kwargs)
+    def commit(self):
+        return self._conn.commit()
+    def rollback(self):
+        return self._conn.rollback()
+    def close(self):
+        try:
+            self._pool.putconn(self._conn)
+        except Exception:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+    @property
+    def closed(self):
+        return self._conn.closed
+
+
 def get_db():
-    """데이터베이스 연결을 반환합니다."""
-    conn = psycopg2.connect(**_get_db_params(), connect_timeout=10)
-    return conn
+    """커넥션 풀에서 연결을 가져옵니다."""
+    try:
+        p = _get_pool()
+        conn = p.getconn()
+        if conn.closed:
+            p.putconn(conn)
+            conn = p.getconn()
+        return _PooledConnection(conn, p)
+    except Exception:
+        return psycopg2.connect(**_get_db_params(), connect_timeout=10)
 
 
 def _dict_row(cursor):
@@ -1497,6 +1539,21 @@ def get_page_change_summary(project_id: int, crawl_run_id: int) -> dict:
 
 
 # ─────────────────────────────────────────────
-# 모듈 로드 시 테이블 자동 생성
+# 테이블 자동 생성은 최초 1회만 실행
 # ─────────────────────────────────────────────
-init_db()
+_db_initialized = False
+
+def ensure_db():
+    """테이블이 생성되지 않았으면 한 번만 실행합니다."""
+    global _db_initialized
+    if not _db_initialized:
+        try:
+            conn = get_db()
+            cur = _cursor(conn)
+            cur.execute("SELECT COUNT(*) as cnt FROM users")
+            cur.fetchone()
+            conn.close()
+            _db_initialized = True
+        except Exception:
+            init_db()
+            _db_initialized = True
