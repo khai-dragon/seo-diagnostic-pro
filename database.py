@@ -22,31 +22,31 @@ def _get_db_params() -> dict:
         import streamlit as st
         return {
             "host": st.secrets["DB_HOST"],
-            "port": int(st.secrets.get("DB_PORT", 5432)),
+            "port": int(st.secrets.get("DB_PORT", 6543)),
             "dbname": st.secrets.get("DB_NAME", "postgres"),
-            "user": st.secrets.get("DB_USER", "postgres"),
+            "user": st.secrets["DB_USER"],
             "password": st.secrets["DB_PASSWORD"],
             "sslmode": "require",
         }
     except Exception:
         pass
-    # 환경변수 폴백
     host = os.environ.get("DB_HOST", "")
     if host:
         return {
             "host": host,
-            "port": int(os.environ.get("DB_PORT", 5432)),
+            "port": int(os.environ.get("DB_PORT", 6543)),
             "dbname": os.environ.get("DB_NAME", "postgres"),
-            "user": os.environ.get("DB_USER", "postgres"),
+            "user": os.environ.get("DB_USER", ""),
             "password": os.environ.get("DB_PASSWORD", ""),
             "sslmode": "require",
         }
-    raise RuntimeError("DB 접속 정보가 설정되지 않았습니다. .streamlit/secrets.toml 또는 환경변수를 확인하세요.")
+    raise RuntimeError("DB 접속 정보가 설정되지 않았습니다.")
 
 
 def get_db():
     """데이터베이스 연결을 반환합니다."""
-    conn = psycopg2.connect(**_get_db_params())
+    params = _get_db_params()
+    conn = psycopg2.connect(**params, connect_timeout=10)
     return conn
 
 
