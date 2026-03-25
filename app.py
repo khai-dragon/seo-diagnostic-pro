@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlparse, urljoin, urldefrag, parse_qs
 from collections import defaultdict
 from itertools import groupby
@@ -387,6 +387,42 @@ hr { border-color: #1e293b !important; }
 """, unsafe_allow_html=True)
 
 
+# ── 쿠키 기반 로그인 유지 ──────────────────────────────────────────────────────
+import hashlib as _hl
+
+def _make_token(user_id: int, email: str) -> str:
+    """간단한 세션 토큰 생성."""
+    secret = st.secrets.get("DB_PASSWORD", "fallback")
+    raw = f"{user_id}:{email}:{secret}"
+    return _hl.sha256(raw.encode()).hexdigest()[:32]
+
+def _save_login_cookie(user: dict):
+    """쿼리 파라미터로 로그인 상태 유지."""
+    token = _make_token(user["id"], user["email"])
+    st.query_params["uid"] = str(user["id"])
+    st.query_params["token"] = token
+
+def _clear_login_cookie():
+    """로그인 쿠키 제거."""
+    for k in ["uid", "token"]:
+        if k in st.query_params:
+            del st.query_params[k]
+
+def _restore_session():
+    """새로고침 시 쿼리 파라미터로부터 세션 복원."""
+    if st.session_state.user:
+        return
+    uid = st.query_params.get("uid", "")
+    token = st.query_params.get("token", "")
+    if uid and token:
+        try:
+            user = db.get_user(int(uid))
+            if user and _make_token(user["id"], user["email"]) == token:
+                st.session_state.user = user
+                st.session_state.view = "dashboard"
+        except Exception:
+            pass
+
 # ── 세션 상태 초기화 ──────────────────────────────────────────────────────────
 if "user" not in st.session_state:
     st.session_state.user = None
@@ -396,6 +432,9 @@ if "current_project_id" not in st.session_state:
     st.session_state.current_project_id = None
 if "card_filter" not in st.session_state:
     st.session_state.card_filter = None
+
+# 새로고침 시 로그인 복원
+_restore_session()
 
 
 # ── 네비게이션 헬퍼 ──────────────────────────────────────────────────────────
@@ -411,6 +450,20 @@ def fmt_time(seconds):
         return "--:--"
     m, s = divmod(int(seconds), 60)
     return f"{m:02d}:{s:02d}"
+
+
+# ── 캐싱된 DB 호출 ──────────────────────────────────────────────────────────
+@st.cache_data(ttl=30)
+def _cached_get_projects(user_id: int):
+    return db.get_projects(user_id)
+
+@st.cache_data(ttl=60)
+def _cached_get_sc_connection(project_id: int):
+    return db.get_sc_connection(project_id)
+
+@st.cache_data(ttl=120)
+def _cached_get_sc_analytics(project_id: int, start_date: str, end_date: str):
+    return db.get_sc_analytics(project_id, start_date, end_date)
 
 
 # ── 사이드바 ──────────────────────────────────────────────────────────────────
@@ -431,7 +484,7 @@ def render_sidebar():
 
             # 프로젝트 목록
             st.markdown("#### 프로젝트")
-            projects = db.get_projects(user["id"])
+            projects = _cached_get_projects(user["id"])
             for proj in projects:
                 label = f"📁 {proj['name']}"
                 if st.button(label, key=f"sidebar_proj_{proj['id']}", use_container_width=True):
@@ -443,7 +496,7 @@ def render_sidebar():
             # SC connection status for selected project
             if st.session_state.current_project_id:
                 try:
-                    sc_conn = db.get_sc_connection(st.session_state.current_project_id)
+                    sc_conn = _cached_get_sc_connection(st.session_state.current_project_id)
                     if sc_conn:
                         st.divider()
                         st.markdown("#### 🔍 서치콘솔")
@@ -452,7 +505,7 @@ def render_sidebar():
                         try:
                             end_date = datetime.utcnow().strftime("%Y-%m-%d")
                             start_date = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
-                            sc_data = db.get_sc_analytics(st.session_state.current_project_id, start_date, end_date)
+                            sc_data = _cached_get_sc_analytics(st.session_state.current_project_id, start_date, end_date)
                             if sc_data:
                                 total_clicks_7d = sum(r.get("clicks", 0) for r in sc_data)
                                 total_impressions_7d = sum(r.get("impressions", 0) for r in sc_data)
@@ -466,6 +519,7 @@ def render_sidebar():
             if st.button("🚪 로그아웃", use_container_width=True):
                 st.session_state.user = None
                 st.session_state.current_project_id = None
+                _clear_login_cookie()
                 navigate("landing")
         else:
             st.markdown("SEO 진단을 시작하세요!")
@@ -700,7 +754,7 @@ def _handle_google_callback():
     if google_email:
         user = db.create_user_google(google_email, google_name or google_email.split("@")[0], google_picture)
         st.session_state.user = user
-        st.query_params.clear()
+        _save_login_cookie(user)
         st.session_state.view = "dashboard"
         return True
     return False
@@ -877,6 +931,7 @@ def _render_google_auth_page(title, subtitle):
                                     user_id = db.create_user(st.session_state.reg_email, st.session_state.reg_pw, auto_name)
                                     user = db.get_user(user_id)
                                     st.session_state.user = user
+                                    _save_login_cookie(user)
                                     st.session_state.reg_step = "form"
                                     is_corp = db.is_corporate_email(st.session_state.reg_email)
                                     limit = 5 if is_corp else 1
@@ -910,6 +965,7 @@ def _render_google_auth_page(title, subtitle):
                             user = db.verify_user(login_email, login_pw)
                             if user:
                                 st.session_state.user = user
+                                _save_login_cookie(user)
                                 st.success("로그인 성공!")
                                 time.sleep(0.5)
                                 navigate("dashboard")
