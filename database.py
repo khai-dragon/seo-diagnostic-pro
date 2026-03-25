@@ -230,7 +230,19 @@ def init_db():
         )
     """)
 
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS email_verifications (
+            id SERIAL PRIMARY KEY,
+            email TEXT NOT NULL,
+            code TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP NOT NULL,
+            verified BOOLEAN DEFAULT FALSE
+        )
+    """)
+
     # 인덱스
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_email_verifications_email ON email_verifications(email, code)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_sc_analytics_project_date ON sc_analytics(project_id, date)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_sc_analytics_url ON sc_analytics(project_id, url)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_pagespeed_project_url ON pagespeed_data(project_id, url)")
@@ -268,6 +280,43 @@ FREE_EMAIL_DOMAINS = {
     "protonmail.com", "proton.me", "zoho.com",
     "yandex.com", "mail.com", "gmx.com",
 }
+
+def save_verification_code(email: str, code: str, minutes: int = 5):
+    """이메일 인증 코드를 저장합니다. 기존 미인증 코드는 삭제합니다."""
+    conn = get_db()
+    try:
+        cur = _cursor(conn)
+        cur.execute("DELETE FROM email_verifications WHERE email = %s AND verified = FALSE", (email,))
+        cur.execute(
+            """INSERT INTO email_verifications (email, code, expires_at)
+               VALUES (%s, %s, CURRENT_TIMESTAMP + INTERVAL '%s minutes')""",
+            (email, code, minutes),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def verify_email_code(email: str, code: str) -> bool:
+    """이메일 인증 코드를 검증합니다. 5분 이내 유효."""
+    conn = get_db()
+    try:
+        cur = _cursor(conn)
+        cur.execute(
+            """SELECT id FROM email_verifications
+               WHERE email = %s AND code = %s AND verified = FALSE
+               AND expires_at > CURRENT_TIMESTAMP""",
+            (email, code),
+        )
+        row = cur.fetchone()
+        if row:
+            cur.execute("UPDATE email_verifications SET verified = TRUE WHERE id = %s", (row["id"],))
+            conn.commit()
+            return True
+        return False
+    finally:
+        conn.close()
+
 
 def is_corporate_email(email: str) -> bool:
     """법인(회사) 이메일인지 확인합니다."""

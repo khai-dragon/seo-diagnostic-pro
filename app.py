@@ -750,126 +750,226 @@ def _render_google_auth_page(title, subtitle):
             </a>
             """, unsafe_allow_html=True)
         else:
-            # 이메일 입력 및 인증
-            with st.form("auth_form"):
-                auth_email = st.text_input("이메일", placeholder="you@gmail.com 또는 you@company.com")
-                auth_password = st.text_input("비밀번호 (법인 이메일만 해당)", type="password", placeholder="법인 이메일은 비밀번호가 필요합니다")
+            # ── 비밀번호 유효성 검사 함수 ──
+            def _validate_password(pw: str) -> str | None:
+                """비밀번호 검증. 실패 시 에러 메시지, 성공 시 None 반환."""
+                if len(pw) < 8:
+                    return "비밀번호는 8자 이상이어야 합니다."
+                if not any(c.isupper() for c in pw):
+                    return "대문자를 1개 이상 포함해야 합니다."
+                if not any(c.islower() for c in pw):
+                    return "소문자를 1개 이상 포함해야 합니다."
+                if not any(c in "!@#$%^&*()_+-=[]{}|;':\",./<>?`~" for c in pw):
+                    return "특수문자를 1개 이상 포함해야 합니다."
+                return None
 
-                submitted = st.form_submit_button(
-                    "계속하기",
-                    use_container_width=True,
-                    type="primary",
-                )
-                if submitted:
-                    if not auth_email or "@" not in auth_email:
-                        st.error("올바른 이메일 주소를 입력해주세요.")
-                    else:
-                        is_corp = db.is_corporate_email(auth_email)
-                        auto_name = auth_email.split("@")[0]
+            # ── 이메일 발송 함수 ──
+            def _send_verification_email(to_email: str, code: str) -> bool:
+                """인증 코드를 이메일로 발송합니다."""
+                import smtplib
+                from email.mime.text import MIMEText
+                from email.mime.multipart import MIMEMultipart
+                try:
+                    smtp_email = st.secrets["SMTP_EMAIL"]
+                    smtp_password = st.secrets["SMTP_PASSWORD"]
+                except Exception:
+                    st.error("이메일 발송 설정이 되어 있지 않습니다. 관리자에게 문의하세요.")
+                    return False
+                try:
+                    msg = MIMEMultipart()
+                    msg["From"] = smtp_email
+                    msg["To"] = to_email
+                    msg["Subject"] = "[SEO Diagnostic Pro] 이메일 인증 코드"
+                    body = f"""
+                    <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:30px;background:#0a0e1a;border-radius:12px;">
+                        <h2 style="color:#818cf8;text-align:center;">SEO Diagnostic Pro</h2>
+                        <p style="color:#e2e8f0;font-size:15px;">이메일 인증을 위한 코드입니다:</p>
+                        <div style="background:#1e293b;border-radius:8px;padding:20px;text-align:center;margin:20px 0;">
+                            <span style="font-size:32px;font-weight:bold;letter-spacing:8px;color:#818cf8;">{code}</span>
+                        </div>
+                        <p style="color:#94a3b8;font-size:13px;">이 코드는 <b>5분</b> 동안 유효합니다.</p>
+                        <p style="color:#64748b;font-size:12px;margin-top:20px;">본인이 요청하지 않은 경우 이 메일을 무시하세요.</p>
+                    </div>
+                    """
+                    msg.attach(MIMEText(body, "html", "utf-8"))
+                    with smtplib.SMTP("smtp.gmail.com", 587) as server:
+                        server.starttls()
+                        server.login(smtp_email, smtp_password)
+                        server.sendmail(smtp_email, to_email, msg.as_string())
+                    return True
+                except Exception as e:
+                    st.error(f"이메일 발송 실패: {e}")
+                    return False
 
-                        if is_corp:
-                            if not auth_password:
-                                st.error("법인 이메일은 비밀번호를 입력해주세요.")
-                            else:
-                                # 1. 비밀번호 로그인 시도
-                                existing_user = db.verify_user(auth_email, auth_password)
-                                if existing_user:
-                                    st.session_state.user = existing_user
-                                    st.success("로그인 성공!")
-                                    time.sleep(0.5)
-                                    navigate("dashboard")
-                                else:
-                                    # 2. 이메일이 DB에 존재하는지 확인
-                                    conn = db.get_db()
-                                    try:
-                                        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-                                        cur.execute("SELECT * FROM users WHERE email = %s", (auth_email,))
-                                        row = cur.fetchone()
-                                    finally:
-                                        conn.close()
+            # ── 탭: 회원가입 / 로그인 ──
+            tab_register, tab_login = st.tabs(["회원가입", "로그인"])
 
-                                    if row:
-                                        # 기존 사용자가 있음 — 비밀번호 업데이트 (이전에 Google로 가입한 경우)
-                                        pw_hash, salt = db.hash_password(auth_password)
-                                        conn = db.get_db()
-                                        try:
-                                            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-                                            cur.execute(
-                                                "UPDATE users SET password_hash = %s, salt = %s WHERE email = %s",
-                                                (pw_hash, salt, auth_email)
-                                            )
-                                            conn.commit()
-                                            cur.execute("SELECT * FROM users WHERE email = %s", (auth_email,))
-                                            updated_row = cur.fetchone()
-                                            st.session_state.user = dict(updated_row)
-                                        finally:
-                                            conn.close()
-                                        st.success("비밀번호가 설정되었습니다. 로그인 완료!")
-                                        time.sleep(0.5)
-                                        navigate("dashboard")
-                                    else:
-                                        # 3. 완전 새 사용자
-                                        try:
-                                            user_id = db.create_user(auth_email, auth_password, auto_name)
-                                            user = db.get_user(user_id)
-                                            st.session_state.user = user
-                                            st.success("가입 완료! 프로젝트 5개까지 생성 가능합니다.")
-                                            time.sleep(0.5)
-                                            navigate("dashboard")
-                                        except ValueError:
-                                            st.error("가입 중 오류가 발생했습니다. 다시 시도해주세요.")
-                        else:
-                            # 개인 이메일: 비밀번호 불필요
-                            user = db.create_user_google(auth_email, auto_name)
-                            st.session_state.user = user
-                            st.info("프로젝트 1개 사용 가능합니다. 법인 이메일로 가입하면 5개까지!")
-                            time.sleep(0.5)
-                            navigate("dashboard")
+            # ════════════════════════════════════════
+            # 회원가입 탭
+            # ════════════════════════════════════════
+            with tab_register:
+                # 가입 단계 관리 (session_state)
+                if "reg_step" not in st.session_state:
+                    st.session_state.reg_step = "form"  # form → verify → done
 
-            # 비밀번호 초기화
-            with st.expander("비밀번호를 잊으셨나요?"):
-                with st.form("reset_pw_form"):
-                    reset_email = st.text_input("등록한 이메일", key="reset_email_input")
-                    new_pw = st.text_input("새 비밀번호", type="password", key="reset_pw_input")
-                    new_pw_confirm = st.text_input("새 비밀번호 확인", type="password", key="reset_pw_confirm")
-                    reset_btn = st.form_submit_button("비밀번호 재설정")
-                    if reset_btn:
-                        if not reset_email or "@" not in reset_email:
-                            st.error("이메일을 입력해주세요.")
-                        elif not new_pw or len(new_pw) < 4:
-                            st.error("비밀번호는 4자 이상 입력해주세요.")
-                        elif new_pw != new_pw_confirm:
-                            st.error("비밀번호가 일치하지 않습니다.")
-                        else:
-                            conn = db.get_db()
-                            try:
-                                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-                                cur.execute("SELECT * FROM users WHERE email = %s", (reset_email,))
-                                row = cur.fetchone()
-                            finally:
-                                conn.close()
-                            if row:
-                                pw_hash, salt = db.hash_password(new_pw)
+                if st.session_state.reg_step == "form":
+                    with st.form("register_form"):
+                        reg_email = st.text_input("이메일", placeholder="you@company.com 또는 you@gmail.com")
+                        reg_pw = st.text_input("비밀번호", type="password", placeholder="대소문자, 특수문자 포함 8자 이상")
+                        reg_pw2 = st.text_input("비밀번호 확인", type="password", placeholder="비밀번호를 다시 입력하세요")
+                        reg_btn = st.form_submit_button("가입하기", use_container_width=True, type="primary")
+
+                        if reg_btn:
+                            if not reg_email or "@" not in reg_email:
+                                st.error("올바른 이메일 주소를 입력해주세요.")
+                            elif db.verify_user(reg_email, "") is not None or db.get_user(db.create_user_google(reg_email, "", "").get("id", 0)):
+                                # 이미 가입된 이메일인지 확인
                                 conn = db.get_db()
                                 try:
                                     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-                                    cur.execute("UPDATE users SET password_hash = %s, salt = %s WHERE email = %s", (pw_hash, salt, reset_email))
-                                    conn.commit()
+                                    cur.execute("SELECT id FROM users WHERE email = %s", (reg_email,))
+                                    existing = cur.fetchone()
                                 finally:
                                     conn.close()
-                                st.success("비밀번호가 재설정되었습니다. 위 폼에서 로그인하세요.")
+                                if existing:
+                                    st.error("이미 가입된 이메일입니다. 로그인 탭에서 로그인하세요.")
+                                else:
+                                    pass  # 계속 진행
                             else:
-                                st.error("등록되지 않은 이메일입니다.")
+                                pass
+
+                            # 이메일 중복 체크 (깔끔하게 다시)
+                            if reg_email and "@" in reg_email:
+                                conn = db.get_db()
+                                try:
+                                    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                                    cur.execute("SELECT id FROM users WHERE email = %s", (reg_email,))
+                                    existing = cur.fetchone()
+                                finally:
+                                    conn.close()
+                                if existing:
+                                    st.error("이미 가입된 이메일입니다. 로그인 탭에서 로그인하세요.")
+                                elif reg_pw != reg_pw2:
+                                    st.error("비밀번호가 일치하지 않습니다.")
+                                else:
+                                    pw_err = _validate_password(reg_pw)
+                                    if pw_err:
+                                        st.error(pw_err)
+                                    else:
+                                        # 인증 코드 생성 및 발송
+                                        import random
+                                        code = f"{random.randint(100000, 999999)}"
+                                        db.save_verification_code(reg_email, code, 5)
+                                        if _send_verification_email(reg_email, code):
+                                            st.session_state.reg_email = reg_email
+                                            st.session_state.reg_pw = reg_pw
+                                            st.session_state.reg_step = "verify"
+                                            st.rerun()
+
+                    st.markdown("""
+                    <p style="color:#64748b;font-size:.8rem;text-align:center;margin-top:8px;">
+                        비밀번호 조건: 대문자 + 소문자 + 특수문자 포함, 8자 이상
+                    </p>
+                    """, unsafe_allow_html=True)
+
+                elif st.session_state.reg_step == "verify":
+                    st.info(f"📧 **{st.session_state.reg_email}** 으로 인증 코드를 발송했습니다. (5분 이내 입력)")
+                    with st.form("verify_form"):
+                        verify_code = st.text_input("인증 코드 6자리", placeholder="123456", max_chars=6)
+                        verify_btn = st.form_submit_button("인증 확인", use_container_width=True, type="primary")
+
+                        if verify_btn:
+                            if db.verify_email_code(st.session_state.reg_email, verify_code):
+                                # 인증 성공 → 사용자 생성
+                                try:
+                                    auto_name = st.session_state.reg_email.split("@")[0]
+                                    user_id = db.create_user(st.session_state.reg_email, st.session_state.reg_pw, auto_name)
+                                    user = db.get_user(user_id)
+                                    st.session_state.user = user
+                                    st.session_state.reg_step = "form"
+                                    is_corp = db.is_corporate_email(st.session_state.reg_email)
+                                    limit = 5 if is_corp else 1
+                                    st.success(f"가입 완료! 프로젝트 {limit}개까지 생성 가능합니다.")
+                                    time.sleep(1)
+                                    navigate("dashboard")
+                                except ValueError:
+                                    st.error("가입 중 오류가 발생했습니다. 다시 시도해주세요.")
+                            else:
+                                st.error("인증 코드가 올바르지 않거나 만료되었습니다.")
+
+                    if st.button("← 처음부터 다시하기"):
+                        st.session_state.reg_step = "form"
+                        st.rerun()
+
+            # ════════════════════════════════════════
+            # 로그인 탭
+            # ════════════════════════════════════════
+            with tab_login:
+                with st.form("login_form"):
+                    login_email = st.text_input("이메일", placeholder="가입한 이메일 주소")
+                    login_pw = st.text_input("비밀번호", type="password", placeholder="비밀번호 입력")
+                    login_btn = st.form_submit_button("로그인", use_container_width=True, type="primary")
+
+                    if login_btn:
+                        if not login_email or "@" not in login_email:
+                            st.error("이메일을 입력해주세요.")
+                        elif not login_pw:
+                            st.error("비밀번호를 입력해주세요.")
+                        else:
+                            user = db.verify_user(login_email, login_pw)
+                            if user:
+                                st.session_state.user = user
+                                st.success("로그인 성공!")
+                                time.sleep(0.5)
+                                navigate("dashboard")
+                            else:
+                                st.error("이메일 또는 비밀번호가 올바르지 않습니다.")
+
+                # 비밀번호 초기화
+                with st.expander("비밀번호를 잊으셨나요?"):
+                    with st.form("reset_pw_form"):
+                        reset_email = st.text_input("등록한 이메일", key="reset_email_input")
+                        new_pw = st.text_input("새 비밀번호", type="password", key="reset_pw_input")
+                        new_pw_confirm = st.text_input("새 비밀번호 확인", type="password", key="reset_pw_confirm")
+                        reset_btn = st.form_submit_button("비밀번호 재설정")
+                        if reset_btn:
+                            if not reset_email or "@" not in reset_email:
+                                st.error("이메일을 입력해주세요.")
+                            elif new_pw != new_pw_confirm:
+                                st.error("비밀번호가 일치하지 않습니다.")
+                            else:
+                                pw_err = _validate_password(new_pw)
+                                if pw_err:
+                                    st.error(pw_err)
+                                else:
+                                    conn = db.get_db()
+                                    try:
+                                        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                                        cur.execute("SELECT * FROM users WHERE email = %s", (reset_email,))
+                                        row = cur.fetchone()
+                                    finally:
+                                        conn.close()
+                                    if row:
+                                        pw_hash, salt = db.hash_password(new_pw)
+                                        conn = db.get_db()
+                                        try:
+                                            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                                            cur.execute("UPDATE users SET password_hash = %s, salt = %s WHERE email = %s", (pw_hash, salt, reset_email))
+                                            conn.commit()
+                                        finally:
+                                            conn.close()
+                                        st.success("비밀번호가 재설정되었습니다. 로그인 탭에서 로그인하세요.")
+                                    else:
+                                        st.error("등록되지 않은 이메일입니다.")
 
         # 안내 메시지
         st.markdown("""
         <div style="background:#111827;border:1px solid #1e293b;border-radius:8px;padding:16px;margin:20px 0;text-align:center;">
             <p style="color:#818cf8;font-size:.9rem;font-weight:600;margin-bottom:8px;">
-                🏢 법인 이메일 = 프로젝트 5개 · 개인 이메일 = 프로젝트 1개
+                법인 이메일 = 프로젝트 5개 · 개인 이메일 = 프로젝트 1개
             </p>
             <p style="color:#94a3b8;font-size:.82rem;margin:0;">
-                법인 이메일은 비밀번호를 설정하여 안전하게 로그인합니다.<br>
-                개인 이메일(Gmail, Naver 등)은 이메일만 입력하면 바로 시작됩니다.
+                가입 시 이메일 인증이 필요합니다. 인증 코드는 5분간 유효합니다.
             </p>
         </div>
         """, unsafe_allow_html=True)
