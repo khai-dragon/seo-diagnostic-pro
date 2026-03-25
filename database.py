@@ -1495,22 +1495,5 @@ def get_page_change_summary(project_id: int, crawl_run_id: int) -> dict:
         conn.close()
 
 
-# ─────────────────────────────────────────────
-# 테이블 자동 생성은 최초 1회만 실행
-# ─────────────────────────────────────────────
-_db_initialized = False
-
-def ensure_db():
-    """테이블이 생성되지 않았으면 한 번만 실행합니다."""
-    global _db_initialized
-    if not _db_initialized:
-        try:
-            conn = get_db()
-            cur = _cursor(conn)
-            cur.execute("SELECT COUNT(*) as cnt FROM users")
-            cur.fetchone()
-            conn.close()
-            _db_initialized = True
-        except Exception:
-            init_db()
-            _db_initialized = True
+# 테이블은 이미 생성됨 (Neon DB에서 직접 실행 완료)
+# init_db()는 최초 배포 시에만 수동 호출

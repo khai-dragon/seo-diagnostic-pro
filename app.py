@@ -452,7 +452,7 @@ def fmt_time(seconds):
     return f"{m:02d}:{s:02d}"
 
 
-# ── 캐싱된 DB 호출 ──────────────────────────────────────────────────────────
+# ── 캐싱된 DB 호출 (읽기 전용, TTL 기반 자동 갱신) ─────────────────────────
 @st.cache_data(ttl=30)
 def _cached_get_projects(user_id: int):
     return db.get_projects(user_id)
@@ -464,6 +464,54 @@ def _cached_get_sc_connection(project_id: int):
 @st.cache_data(ttl=120)
 def _cached_get_sc_analytics(project_id: int, start_date: str, end_date: str):
     return db.get_sc_analytics(project_id, start_date, end_date)
+
+@st.cache_data(ttl=30)
+def _cached_get_project(project_id: int):
+    return db.get_project(project_id)
+
+@st.cache_data(ttl=15)
+def _cached_get_crawl_runs(project_id: int, limit: int = 20):
+    return db.get_crawl_runs(project_id, limit)
+
+@st.cache_data(ttl=15)
+def _cached_get_latest_crawl(project_id: int):
+    return db.get_latest_crawl(project_id)
+
+@st.cache_data(ttl=30)
+def _cached_get_insights(project_id: int, crawl_run_id: int = None):
+    return db.get_insights(project_id, crawl_run_id)
+
+@st.cache_data(ttl=60)
+def _cached_get_user(user_id: int):
+    return db.get_user(user_id)
+
+@st.cache_data(ttl=30)
+def _cached_can_create_project(user_id: int):
+    return db.can_create_project(user_id)
+
+@st.cache_data(ttl=30)
+def _cached_get_excluded_urls(project_id: int):
+    return db.get_excluded_urls(project_id)
+
+@st.cache_data(ttl=60)
+def _cached_get_pagespeed_data(project_id: int, url: str = None, crawl_run_id: int = None):
+    return db.get_pagespeed_data(project_id, url, crawl_run_id)
+
+@st.cache_data(ttl=30)
+def _cached_get_previous_crawl(project_id: int):
+    return db.get_previous_crawl(project_id)
+
+@st.cache_data(ttl=60)
+def _cached_get_page_snapshots(project_id: int, url: str):
+    return db.get_page_snapshots(project_id, url)
+
+@st.cache_data(ttl=30)
+def _cached_get_page_changes(project_id: int, crawl_run_id: int = None, url: str = None, limit: int = 100):
+    return db.get_page_changes(project_id, crawl_run_id, url, limit)
+
+@st.cache_data(ttl=30)
+def _cached_get_page_change_summary(project_id: int, crawl_run_id: int):
+    return db.get_page_change_summary(project_id, crawl_run_id)
 
 
 # ── 사이드바 ──────────────────────────────────────────────────────────────────
@@ -1055,7 +1103,7 @@ def render_dashboard():
     """, unsafe_allow_html=True)
 
     # 플랜 & 프로젝트 제한 정보
-    can_create, current_count, max_proj = db.can_create_project(user["id"])
+    can_create, current_count, max_proj = _cached_can_create_project(user["id"])
     is_corp = db.is_corporate_email(user.get("email", ""))
     plan_label = "Business" if is_corp else "Free"
     plan_cls = "plan-business" if is_corp else "plan-free"
@@ -1096,7 +1144,7 @@ def render_dashboard():
 
     # Project overview cards
     for proj in projects:
-        latest = db.get_latest_crawl(proj["id"])
+        latest = _cached_get_latest_crawl(proj["id"])
 
         # Schedule badge
         sched = proj.get("schedule", "manual")
@@ -1166,7 +1214,7 @@ def render_project_new():
         navigate("dashboard")
 
     # 프로젝트 제한 체크
-    can_create, current_count, max_proj = db.can_create_project(user["id"])
+    can_create, current_count, max_proj = _cached_can_create_project(user["id"])
     if not can_create:
         st.error(f"프로젝트 한도에 도달했습니다 ({current_count}/{max_proj})")
         if not db.is_corporate_email(user.get("email", "")):
@@ -1208,7 +1256,7 @@ def render_project_new():
 def render_project_detail():
     user = st.session_state.user
     project_id = st.session_state.current_project_id
-    project = db.get_project(project_id)
+    project = _cached_get_project(project_id)
 
     if not project:
         st.error("프로젝트를 찾을 수 없습니다.")
@@ -1275,7 +1323,7 @@ def render_project_detail():
 
 # ── 프로젝트 개요 ────────────────────────────────────────────────────────────
 def render_project_overview(project):
-    latest = db.get_latest_crawl(project["id"])
+    latest = _cached_get_latest_crawl(project["id"])
 
     if not latest:
         st.info("아직 크롤링 기록이 없습니다. '설정' 탭에서 첫 번째 크롤링을 시작하세요.")
@@ -1517,7 +1565,7 @@ def render_crawl_execution(project):
             db.update_project(project["id"], last_crawl_at=datetime.utcnow().isoformat())
 
             # Generate insights
-            prev_crawl = db.get_previous_crawl(project["id"])
+            prev_crawl = _cached_get_previous_crawl(project["id"])
             prev_run_id = prev_crawl["id"] if prev_crawl else None
             db.generate_insights(project["id"], run_id, prev_run_id)
 
@@ -1559,7 +1607,7 @@ def render_crawl_execution(project):
 
 # ── 결과 분석 ────────────────────────────────────────────────────────────────
 def render_results_analysis(project):
-    latest = db.get_latest_crawl(project["id"])
+    latest = _cached_get_latest_crawl(project["id"])
 
     if not latest:
         st.info("아직 크롤링 결과가 없습니다. '설정' 탭에서 크롤링을 시작하세요.")
@@ -1932,7 +1980,7 @@ def render_results_analysis(project):
 
 # ── 크롤링 히스토리 ──────────────────────────────────────────────────────────
 def render_crawl_history(project):
-    runs = db.get_crawl_runs(project["id"], limit=20)
+    runs = _cached_get_crawl_runs(project["id"], limit=20)
 
     if not runs:
         st.info("아직 크롤링 기록이 없습니다.")
@@ -1986,14 +2034,14 @@ def render_insights(project):
     # ── 개요 (건강 점수 + 요약 카드) ──
     render_project_overview(project)
 
-    latest = db.get_latest_crawl(project["id"])
+    latest = _cached_get_latest_crawl(project["id"])
     if not latest:
         st.info("인사이트를 생성하려면 먼저 크롤링을 실행하세요.")
         return
 
     # ── 변경 감지 알림 배너 ──
     try:
-        changes = db.get_page_changes(project["id"], crawl_run_id=latest["id"])
+        changes = _cached_get_page_changes(project["id"], crawl_run_id=latest["id"])
         if changes:
             change_types = defaultdict(int)
             for c in changes:
@@ -2154,7 +2202,7 @@ def render_insights(project):
 
                 # 5. PageSpeed 점수가 낮은 고트래픽 페이지
                 try:
-                    ps_results = db.get_pagespeed_data(project["id"])
+                    ps_results = _cached_get_pagespeed_data(project["id"])
                     if ps_results:
                         ps_score_map = {}
                         for ps in ps_results:
@@ -2298,7 +2346,7 @@ def render_insights(project):
 
         st.divider()
 
-    insights = db.get_insights(project["id"], crawl_run_id=latest["id"])
+    insights = _cached_get_insights(project["id"], crawl_run_id=latest["id"])
 
     if not insights:
         st.info("아직 인사이트가 없습니다. 두 번째 크롤링부터 비교 인사이트가 생성됩니다.")
@@ -2326,7 +2374,7 @@ def render_insights(project):
 
     # Filter out excluded URLs
     try:
-        excluded_urls = db.get_excluded_urls(project["id"])
+        excluded_urls = _cached_get_excluded_urls(project["id"])
         excluded_patterns = [ex.get("url_pattern", "") for ex in excluded_urls if ex.get("url_pattern")]
     except Exception:
         excluded_patterns = []
@@ -2501,7 +2549,7 @@ def render_insights(project):
 
         # ── PageSpeed 미리보기 ──
         try:
-            ps_results = db.get_pagespeed_data(project["id"])
+            ps_results = _cached_get_pagespeed_data(project["id"])
         except Exception:
             ps_results = None
 
@@ -2692,7 +2740,7 @@ def render_ai_geo(project):
     st.markdown("---")
     st.markdown("#### 📊 페이지별 E-E-A-T 점수 & AI 준비도")
 
-    latest = db.get_latest_crawl(project_id)
+    latest = _cached_get_latest_crawl(project_id)
     pages = []
     if not latest:
         st.info("크롤링 데이터가 없습니다. '설정' 탭에서 먼저 크롤링을 실행하세요.")
@@ -3194,7 +3242,7 @@ def render_project_settings(project):
 
     # Show existing exclusions
     try:
-        excluded_list = db.get_excluded_urls(project_id)
+        excluded_list = _cached_get_excluded_urls(project_id)
     except Exception:
         excluded_list = []
 
@@ -3709,7 +3757,7 @@ def render_pagespeed(project):
     # URL selection
     latest = None
     try:
-        latest = db.get_latest_crawl(project_id)
+        latest = _cached_get_latest_crawl(project_id)
     except Exception:
         pass
 
@@ -3776,7 +3824,7 @@ def render_pagespeed(project):
     st.markdown("#### 📊 분석 결과")
 
     try:
-        ps_results = db.get_pagespeed_data(project_id)
+        ps_results = _cached_get_pagespeed_data(project_id)
     except Exception:
         ps_results = []
 
@@ -3897,7 +3945,7 @@ def render_page_changes(project):
     st.caption("크롤링 간 페이지의 Title, Description, H1, 콘텐츠 등의 변경을 추적합니다.")
 
     try:
-        changes = db.get_page_changes(project_id)
+        changes = _cached_get_page_changes(project_id)
     except Exception:
         changes = []
 
