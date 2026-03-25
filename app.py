@@ -1044,7 +1044,7 @@ def render_dashboard():
 
         # Schedule badge
         sched = proj.get("schedule", "manual")
-        sched_labels = {"manual": "수동", "daily": "매일", "weekly": "매주"}
+        sched_labels = {"manual": "수동", "biweekly": "주2회", "weekly": "매주"}
         sched_cls = f"schedule-{sched}"
         sched_label = sched_labels.get(sched, sched)
 
@@ -1058,8 +1058,8 @@ def render_dashboard():
             issue_summary = f"🔴 {h} · 🟡 {m} · 🟢 {lo}"
 
         next_crawl = ""
-        if sched == "daily":
-            next_crawl = f"다음 크롤링: 매일 {proj.get('schedule_time', '09:00')}"
+        if sched == "biweekly":
+            next_crawl = f"다음 크롤링: 주 2회 {proj.get('schedule_time', '09:00')}"
         elif sched == "weekly":
             next_crawl = f"다음 크롤링: 매주 {proj.get('schedule_time', '09:00')}"
 
@@ -3031,10 +3031,9 @@ def render_project_settings(project):
         st.markdown("#### 📅 자동 수집 스케줄")
         st.caption("모든 시간은 한국 표준시(KST, UTC+9) 기준입니다.")
 
-        schedule_options = ["manual", "daily", "biweekly", "weekly"]
+        schedule_options = ["manual", "biweekly", "weekly"]
         schedule_labels = {
             "manual": "수동 (직접 크롤링 실행)",
-            "daily": "매일 (매일 지정한 시간에 자동 크롤링)",
             "biweekly": "주 2회 (선택한 요일에 자동 크롤링)",
             "weekly": "주 1회 (선택한 요일에 자동 크롤링)",
         }
