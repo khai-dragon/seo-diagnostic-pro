@@ -16,24 +16,37 @@ from datetime import datetime
 # DB 연결 설정
 # ─────────────────────────────────────────────
 
-def _get_database_url() -> str:
-    """Streamlit secrets 또는 환경변수에서 DB URL을 가져옵니다."""
-    # 1) Streamlit secrets (배포 환경)
+def _get_db_params() -> dict:
+    """Streamlit secrets 또는 환경변수에서 DB 접속 정보를 가져옵니다."""
     try:
         import streamlit as st
-        return st.secrets["DATABASE_URL"]
+        return {
+            "host": st.secrets["DB_HOST"],
+            "port": int(st.secrets.get("DB_PORT", 5432)),
+            "dbname": st.secrets.get("DB_NAME", "postgres"),
+            "user": st.secrets.get("DB_USER", "postgres"),
+            "password": st.secrets["DB_PASSWORD"],
+            "sslmode": "require",
+        }
     except Exception:
         pass
-    # 2) 환경변수
-    url = os.environ.get("DATABASE_URL", "")
-    if url:
-        return url
-    raise RuntimeError("DATABASE_URL이 설정되지 않았습니다. .streamlit/secrets.toml 또는 환경변수를 확인하세요.")
+    # 환경변수 폴백
+    host = os.environ.get("DB_HOST", "")
+    if host:
+        return {
+            "host": host,
+            "port": int(os.environ.get("DB_PORT", 5432)),
+            "dbname": os.environ.get("DB_NAME", "postgres"),
+            "user": os.environ.get("DB_USER", "postgres"),
+            "password": os.environ.get("DB_PASSWORD", ""),
+            "sslmode": "require",
+        }
+    raise RuntimeError("DB 접속 정보가 설정되지 않았습니다. .streamlit/secrets.toml 또는 환경변수를 확인하세요.")
 
 
 def get_db():
-    """데이터베이스 연결을 반환합니다. RealDictCursor를 사용합니다."""
-    conn = psycopg2.connect(_get_database_url())
+    """데이터베이스 연결을 반환합니다."""
+    conn = psycopg2.connect(**_get_db_params())
     return conn
 
 
